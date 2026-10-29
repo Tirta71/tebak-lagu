@@ -18,7 +18,7 @@ const PREVIEW = 30
  * singer) songs by other artists. In the mixed mode each song is one or the other at random. A
  * seeded random source gives everyone the same quiz.
  */
-function makeQuestions(pool: Song[], mode: Mode, rng: Rng, sameArtist: boolean, count: number): Question[] {
+export function makeQuestions(pool: Song[], mode: Mode, rng: Rng, sameArtist: boolean, count: number): Question[] {
   const singer = (s: Song) => norm(s.artist.split(',')[0])
   const songs = shuffle(pool, rng)
   return songs.slice(0, count).map((answer) => {
@@ -34,7 +34,7 @@ function makeQuestions(pool: Song[], mode: Mode, rng: Rng, sameArtist: boolean, 
 }
 
 /** Guessing the singer (alone or mixed in) needs at least four different artists in the pool. */
-const enoughArtists = (pool: Song[]) => new Set(pool.map((s) => norm(s.artist.split(',')[0]))).size >= 4
+export const enoughArtists = (pool: Song[]) => new Set(pool.map((s) => norm(s.artist.split(',')[0]))).size >= 4
 
 /** Points for a right answer: 1000 straight away, down to 300 at the buzzer, times the combo and the level. */
 export const pointsFor = (secondsLeft: number, combo: number, rules: LevelRules) => Math.round((300 + 700 * Math.min(1, secondsLeft / rules.seconds)) * comboFactor(combo) * rules.factor)
