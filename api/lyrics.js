@@ -122,22 +122,20 @@ export async function GET(request) {
   const artist = rawArtist.split(',')[0].trim()
 
   try {
-    // ask both at once (LRCLIB is slow); the exact match wins, and only timed lyrics count
+    // the exact match first (one quick lookup); the slow search only when that has no timed lyrics,
+    // since LRCLIB turns requests away when a playlist's worth of both come at once
     let busy = false
     const failed = () => { busy = true; return null }
-    const [exact, searched] = await Promise.all([
-      fromLrclib(title, artist, duration).catch(failed),
-      searchLrclib(title, artist, album, duration).catch(failed),
-    ])
-    const synced = exact?.syncedLyrics || searched?.syncedLyrics
-    // LRCLIB being busy isn't "no lyrics": don't cache that
-    if (!synced) return json({ found: false }, busy ? 'no-store' : 's-maxage=3600')
+    const exact = await fromLrclib(title, artist, duration).catch(failed)
+    const synced = exact?.syncedLyrics || (await searchLrclib(title, artist, album, duration).catch(failed))?.syncedLyrics
+    // LRCLIB being busy isn't "no lyrics": don't cache that, and say so, so the song can be asked again
+    if (!synced) return busy ? json({ found: false, busy: true }) : json({ found: false }, 's-maxage=3600')
 
     const lines = dedupSynced(parseLrc(synced))
     if (lines.length < 8) return json({ found: false }, 's-maxage=3600')
     // the client picks which lines to ask, from the part of the song the preview plays
     return json({ found: true, synced: true, lines }, 's-maxage=86400')
   } catch {
-    return json({ found: false }, 'no-store')
+    return json({ found: false, busy: true })
   }
 }

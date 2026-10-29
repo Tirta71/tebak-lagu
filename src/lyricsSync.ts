@@ -28,6 +28,8 @@ export type SyncedQuestion = {
 }
 
 const key = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+/** A line reduced to its words, so lines that only differ in case, punctuation or odd spaces count as one. */
+export const lineKey = key
 
 /** Pick lines sung inside the clip: a few to show, then the one to guess. */
 export function buildQuestion(lines: SyncedLine[], rand = Math.random, offset = PREVIEW_START, clipLen = 30): SyncedQuestion | null {
@@ -80,17 +82,38 @@ export function buildQuestion(lines: SyncedLine[], rand = Math.random, offset = 
   }
 }
 
+/** Thrown when LRCLIB (or the connection) was busy: the song may still have lyrics, so ask again later. */
+const BUSY = new Error('busy')
+
+// LRCLIB turns lookups away when many come at once (half a playlist was lost that way), so only a
+// few are asked at a time; the rest of each song's check (Deezer, the clip) still runs in parallel
+const lyricsSlots = { free: 4, waiting: [] as Array<() => void> }
+async function inLyricsSlot<T>(job: () => Promise<T>): Promise<T> {
+  if (lyricsSlots.free > 0) lyricsSlots.free--
+  else await new Promise<void>((r) => lyricsSlots.waiting.push(r))
+  try {
+    return await job()
+  } finally {
+    // hand the slot straight to the next in line, or give it back
+    const next = lyricsSlots.waiting.shift()
+    if (next) next()
+    else lyricsSlots.free++
+  }
+}
+
 /** Timed lyrics for a song, or null when there are none we trust. */
 export async function fetchSyncedLines(song: { title: string; artist: string; duration?: number; album?: string }): Promise<SyncedLine[] | null> {
   const params: Record<string, string> = { title: song.title, artist: song.artist }
   if (song.duration) params.duration = String(song.duration)
   if (song.album) params.album = song.album
+  let lj
   try {
-    const lj = await (await fetch(`/api/lyrics?${new URLSearchParams(params)}`)).json()
-    return lj.found && Array.isArray(lj.lines) ? (lj.lines as SyncedLine[]) : null
+    lj = await inLyricsSlot(async () => (await fetch(`/api/lyrics?${new URLSearchParams(params)}`)).json())
   } catch {
-    return null
+    throw BUSY
   }
+  if (lj.busy) throw BUSY
+  return lj.found && Array.isArray(lj.lines) ? (lj.lines as SyncedLine[]) : null
 }
 
 // ---------- checking a clip against its lyrics ----------
@@ -226,24 +249,68 @@ async function prepare(song: Song, ctx: BaseAudioContext): Promise<ReadyQuestion
   return { ...sq, song, audioUrl: URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' })) }
 }
 
+/** A song from a Spotify playlist, still to be found on Deezer (for its clip). */
+type Listed = { title: string; artist: string }
+export type Candidate = Song | Listed
+
+async function findOnDeezer(t: Listed): Promise<Song | null> {
+  const r = await fetch(`/api/deezer?${new URLSearchParams({ find: t.title, artist: t.artist })}`)
+  return r.ok ? r.json() : null
+}
+
+/**
+ * Every song a lyrics quiz can try, and the quiz's name. A Spotify playlist offers all its songs
+ * (Spotify shows up to 100), each found on Deezer only when its turn comes, since only some
+ * will have lyrics that line up with their clip; other quizzes come with their clips already.
+ */
+export async function lyricsCandidates(query: string): Promise<{ name?: string; songs: Candidate[]; error?: string }> {
+  const p = new URLSearchParams(query)
+  const url = p.get('kind') === 'playlist' ? `/api/playlist?${new URLSearchParams({ url: p.get('url') ?? '' })}` : `/api/quiz?${query}&want=all`
+  const j = await fetch(url)
+    .then((r) => r.json())
+    .catch(() => ({ error: 'Tidak bisa tersambung. Coba lagi.' }))
+  if (j.error || !j.tracks) return { songs: [], error: j.error ?? 'Kuis tidak bisa dimuat.' }
+  // the same song twice (or in two versions: "(feat. …)", "- Remastered") would be the same question twice
+  const bare = (title: string) => key(title.replace(/\s*[([].*$|\s+-\s.*$/, '')) || key(title)
+  const seen = new Set<string>()
+  const songs = (j.tracks as Candidate[]).filter((t) => {
+    const k = `${bare(t.title)}|${key(t.artist.split(',')[0])}`
+    return !seen.has(k) && !!seen.add(k)
+  })
+  return { name: j.name, songs }
+}
+
 /**
  * Questions from songs whose clip lines up with their lyrics, up to `want` of them, in random
  * order. Each is handed to `onReady` as soon as it's checked, so play can start before all are.
  */
-export async function loadSyncedQuestions(songs: Song[], want: number, onReady: (q: ReadyQuestion) => void, cancelled = () => false) {
+export async function loadSyncedQuestions(songs: Candidate[], want: number, onReady: (q: ReadyQuestion) => void, cancelled = () => false) {
   const queue = shuffle(songs, Math.random)
   const ctx = new OfflineAudioContext(2, 1, 44100)
+  const tries = new Map<Candidate, number>()
   let found = 0
   const worker = async () => {
     while (found < want && queue.length && !cancelled()) {
-      const song = queue.shift()!
+      const next = queue.shift()!
+      let song: Song | null = null
       try {
+        song = 'id' in next ? next : await findOnDeezer(next)
+        if (!song) continue
         const q = await prepare(song, ctx)
         if (q && found < want && !cancelled()) {
           found++
           onReady(q)
         } else if (q) URL.revokeObjectURL(q.audioUrl)
-      } catch {}
+      } catch (e) {
+        // LRCLIB was busy, not out of lyrics: two more goes for this song, at the back of the queue
+        const again = song ?? next
+        const n = tries.get(again) ?? 0
+        if (e === BUSY && n < 2) {
+          tries.set(again, n + 1)
+          queue.push(again)
+          await new Promise((r) => setTimeout(r, 1500))
+        }
+      }
     }
   }
   // most of the wait is the lyrics lookup, so several songs are checked at once

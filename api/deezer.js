@@ -7,7 +7,8 @@ import { norm, sameArtist } from './_match.js'
 
 const json = (body, cache = 'no-store', status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': cache } })
 
-const song = (t) => ({ id: t.id, title: t.title, artist: t.artist.name, cover: t.album.cover_medium, preview: t.preview, link: t.link })
+// length and album too: Tebak Lirik needs them to find the lyrics of this exact version
+const song = (t) => ({ id: t.id, title: t.title, artist: t.artist.name, cover: t.album.cover_medium, preview: t.preview, link: t.link, duration: t.duration ?? 0, album: t.album.title ?? '' })
 
 async function search(q, limit) {
   const j = await deezer(`/search?${new URLSearchParams({ q, limit: String(limit) })}`)

@@ -198,9 +198,17 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
     return () => window.removeEventListener('keydown', onKey)
   })
 
+  // on a phone the answer and the next button can sit below the screen: bring them up, then back to the top
+  useEffect(() => {
+    scrollTo({ top: answered ? document.documentElement.scrollHeight : 0, behavior: 'smooth' })
+  }, [answered])
+
   const next = () => {
     if (!questions) return
     if (i + 1 >= questions.length) return onDone(answers, name, mode)
+    // reset the clock with the move: after a timeout it still reads 0, which would end the next song at once
+    setStarted(false)
+    setLeft(SECONDS)
     setI(i + 1)
   }
 
@@ -226,7 +234,12 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
             <p>{mode === 'artist' ? 'Tebak penyanyinya!' : mode === 'both' ? 'Kadang judul, kadang penyanyi!' : 'Tebak judulnya!'}</p>
           </>
         ) : (
-          <p className="note">Menyiapkan {name}…</p>
+          <>
+            <p className="note">Menyiapkan {name}…</p>
+            <button className="ghost small" onClick={onQuit}>
+              <X size={14} /> Batal
+            </button>
+          </>
         )}
       </section>
     )
@@ -348,7 +361,7 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
       </div>
 
       {answered && (
-        <button className="primary" onClick={next}>
+        <button className="primary next" onClick={next}>
           {i + 1 >= questions.length ? 'Lihat hasil' : 'Lagu berikutnya'} <ArrowRight size={16} />
         </button>
       )}

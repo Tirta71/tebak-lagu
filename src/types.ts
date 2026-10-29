@@ -14,4 +14,5 @@ export type QuizSource = { key: string; name: string; query: string; picture?: s
 /** One song: `kind` says whether this one asks for the title or the singer. */
 export type Question = { answer: Song; options: Song[]; kind: 'title' | 'artist' }
 
-export type Answer = { question: Question; picked: Song | null; points: number; seconds: number; combo: number }
+/** In Tebak Lirik, `line` is the line to guess and `tries` the wrong picks before the end. */
+export type Answer = { question: Question; picked: Song | null; points: number; seconds: number; combo: number; line?: string; tries?: number }

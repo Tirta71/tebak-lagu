@@ -91,7 +91,6 @@ export function QuizPicker({ onStart }: { onStart: (q: QuizSource) => void }) {
     <>
       <Shelf
         title="Pilihan Tirta"
-        id="kuis"
         extra={
           <form
             className="link-form"

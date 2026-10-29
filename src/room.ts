@@ -44,7 +44,7 @@ export type HostMsg =
   | { t: 'loading' }
   | { t: 'q'; q: PublicQuestion }
   | { t: 'answered'; ids: string[] }
-  | { t: 'reveal'; i: number; answer: Song; results: RoundResult[]; players: Player[] }
+  | { t: 'reveal'; i: number; answer: Song; results: RoundResult[]; players: Player[]; line?: string }
   | { t: 'end'; players: Player[] }
   | { t: 'full' }
   // lyrics mode messages
@@ -71,3 +71,6 @@ export const WRONG_PENALTY = 100
 /** Seconds everyone listens before the choices open (3, 2, 1); the clock for answering starts after. */
 export const ANSWER_DELAY = 3
 export const MAX_PLAYERS = 8
+/** Tebak Lirik: seconds to pick after raising a hand; too slow costs the same as a wrong pick. */
+export const BUZZ_SECONDS = 5
+export const BUZZ_PENALTY = 200

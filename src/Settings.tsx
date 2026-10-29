@@ -38,12 +38,12 @@ export function useGameSettings() {
 }
 
 /** The three rows of choices. Read-only (for guests in a room) when no setters are given. */
-export function SettingsPanel({ settings, setMode, setLevel, setCount }: { settings: GameSettings; setMode?: (m: Mode) => void; setLevel?: (l: Level) => void; setCount?: (c: Count) => void }) {
+export function SettingsPanel({ settings, setMode, setLevel, setCount, hideMode }: { settings: GameSettings; setMode?: (m: Mode) => void; setLevel?: (l: Level) => void; setCount?: (c: Count) => void; hideMode?: boolean }) {
   const { mode, level, count } = settings
   const locked = !setMode
   return (
     <section className={`settings${locked ? ' locked' : ''}`}>
-      <div className="setting">
+      <div className="setting" hidden={hideMode}>
         <h3>Tebak apa?</h3>
         <div className="seg modes-seg" role="radiogroup" aria-label="Mode permainan">
           <button role="radio" aria-checked={mode === 'title'} disabled={locked} onClick={() => setMode?.('title')}>

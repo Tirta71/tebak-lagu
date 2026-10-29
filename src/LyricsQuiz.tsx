@@ -6,7 +6,8 @@ import { Bit, Equalizer } from './Bit'
 import type { Answer, Mode, QuizSource } from './types'
 import { comboFactor } from './Quiz'
 import { shuffle } from './random'
-import { cueAt, loadSyncedQuestions, type ReadyQuestion } from './lyricsSync'
+import { cueAt, lineKey, loadSyncedQuestions, lyricsCandidates, type ReadyQuestion } from './lyricsSync'
+import { LyricsCard } from './LyricsCard'
 
 const WRONG_PENALTY = 200
 /** Start playing once this many songs are ready; the rest load while you play. */
@@ -22,10 +23,10 @@ function lyricsPoints(combo: number, fast: boolean, rules: LevelRules) {
 
 /** The answer plus three wrong lines: from the same song first, else from the other songs. */
 function buildOptions(q: LyricsQuestion, all: LyricsQuestion[]): LyricOption[] {
-  const seen = new Set([q.answer.toLowerCase(), ...q.context.map((c) => c.toLowerCase())])
+  const seen = new Set([lineKey(q.answer), ...q.context.map(lineKey)])
   const wrongs: string[] = []
   const take = (line: string) => {
-    const k = line.toLowerCase()
+    const k = lineKey(line)
     if (wrongs.length < 3 && !seen.has(k) && line.length > 5) { wrongs.push(line); seen.add(k) }
   }
   q.wrongs.forEach(take)
@@ -65,16 +66,16 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
     let alive = true
     ;(async () => {
       try {
-        // only some songs have lyrics that line up with their clip, so ask for extra
-        const res = await fetch(`/api/quiz?${source.query}&want=${source.count === 'all' ? 'all' : (source.count ?? 10) * 4}`)
-        const j = await res.json()
+        // only some songs have lyrics that line up with their clip, so every song is a candidate
+        const { name: listName, songs, error } = await lyricsCandidates(source.query)
         if (!alive) return
-        if (j.error || !j.tracks) return setError(j.error ?? 'Kuis tidak bisa dimuat.')
-        setName(source.name === 'Playlist kamu' && j.name ? j.name : source.name)
-        setWanted(source.count === 'all' ? j.tracks.length : (source.count ?? 10))
+        if (error) return setError(error)
+        setName(source.name === 'Playlist kamu' && listName ? listName : source.name)
+        const want = source.count === 'all' ? songs.length : (source.count ?? 10)
+        setWanted(want)
         const found = await loadSyncedQuestions(
-          j.tracks,
-          source.count === 'all' ? j.tracks.length : (source.count ?? 10),
+          songs,
+          want,
           (rq) => {
             urls.current.push(rq.audioUrl)
             setQuestions((prev) => [...prev, { ...rq, options: buildOptions({ ...rq, options: [] }, prev) }])
@@ -208,10 +209,10 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
     chooseTimer.current = window.setTimeout(() => {
       sfx.wrong()
       setPhase('done')
-      setAnswers((a) => [...a, { question: { kind: 'title', answer: q.song, options: [] }, picked: null, points: -penalty, seconds: 0, combo: 0 }])
+      setAnswers((a) => [...a, { question: { kind: 'title', answer: q.song, options: [] }, picked: null, points: -penalty, seconds: 0, combo: 0, line: q.answer, tries: wrong.size }])
     }, 15000)
     return () => clearTimeout(chooseTimer.current)
-  }, [phase, q, penalty])
+  }, [phase, q, penalty, wrong])
 
   const tryAnswer = useCallback((idx: number) => {
     if (!q || phase !== 'choosing' || wrong.has(idx)) return
@@ -225,7 +226,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
       const pts = Math.max(0, lyricsPoints(nextCombo, fast, rules) - penalty)
       setPickedIdx(idx)
       setPhase('done')
-      setAnswers((a) => [...a, { question: { kind: 'title', answer: q.song, options: [] }, picked: q.song, points: pts, seconds: 0, combo: nextCombo }])
+      setAnswers((a) => [...a, { question: { kind: 'title', answer: q.song, options: [] }, picked: q.song, points: pts, seconds: 0, combo: nextCombo, line: q.answer, tries: wrong.size }])
     } else {
       sfx.wrong()
       setWrong((w) => new Set(w).add(idx))
@@ -233,7 +234,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
       if (wrong.size + 1 >= 3) {
         clearTimeout(chooseTimer.current)
         setPhase('done')
-        setAnswers((a) => [...a, { question: { kind: 'title', answer: q.song, options: [] }, picked: null, points: -(penalty + WRONG_PENALTY), seconds: 0, combo: 0 }])
+        setAnswers((a) => [...a, { question: { kind: 'title', answer: q.song, options: [] }, picked: null, points: -(penalty + WRONG_PENALTY), seconds: 0, combo: 0, line: q.answer, tries: wrong.size + 1 }])
       }
     }
   }, [q, phase, wrong, combo, rules, penalty])
@@ -255,6 +256,12 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
     return () => window.removeEventListener('keydown', onKey)
   })
 
+  // on a phone the answer and the next button can sit below the screen: bring them up, then back to the top
+  const done = phase === 'done'
+  useEffect(() => {
+    scrollTo({ top: done ? document.documentElement.scrollHeight : 0, behavior: 'smooth' })
+  }, [done])
+
   if (error)
     return (
       <section className="panel center">
@@ -273,7 +280,15 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
             <p>Dengarkan lagu, lanjutkan liriknya!</p>
           </>
         ) : (
-          <p className="note">Mencocokkan lirik dengan lagunya{wanted ? ` ${questions.length}/${Math.min(START_AFTER, wanted)}` : ''}...</p>
+          <>
+            <p className="note">{wanted ? 'Mencocokkan lirik dengan lagunya...' : `Menyiapkan ${name}...`}</p>
+            <div className="load-bar" aria-hidden>
+              <span style={{ transform: `scaleX(${wanted ? Math.min(1, questions.length / Math.min(START_AFTER, wanted)) : 0})` }} />
+            </div>
+            <button className="ghost small" onClick={onQuit}>
+              <X size={14} /> Batal
+            </button>
+          </>
         )}
       </section>
     )
@@ -281,6 +296,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
 
   const score = answers.reduce((s, a) => s + a.points, 0)
   const mine = answers[qi]
+  const right = (mine?.points ?? 0) > 0
   const shown = phase === 'revealing' ? revealed : q.context.length
 
   return (
@@ -305,18 +321,13 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
         <span style={{ transform: `scaleX(${phase === 'revealing' ? progress : 1})`, background: 'linear-gradient(90deg, #3fd6c6, #8b8cff)' }} />
       </div>
 
-      <div className="stage lyrics-stage">
-        <div className="lyrics-snippet">
-          {q.context.slice(0, shown).map((line, k) => (
-            <p key={k} className={k === shown - 1 && phase === 'revealing' ? 'lyrics-new' : ''}>{line}</p>
-          ))}
-          {(phase === 'countdown' || phase === 'choosing') && <p className="lyrics-blank">???</p>}
-          {phase === 'done' && (
-            <p className={`lyrics-answer ${mine?.points > 0 ? 'correct' : 'missed'}`}>{q.answer}</p>
-          )}
-        </div>
-        <Equalizer on={started} />
-      </div>
+      <LyricsCard
+        lines={q.context}
+        shown={shown}
+        live={phase === 'revealing' && started}
+        blank={phase === 'countdown' || phase === 'choosing'}
+        answer={phase === 'done' ? { text: q.answer, right: right } : undefined}
+      />
 
       {blocked && phase === 'revealing' && (
         <button className="ghost small center-self" onClick={() => audio.current?.play().then(() => setBlocked(false)).catch(() => {})}>
@@ -329,35 +340,33 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
           <Flame size={15} /> {combo}
         </span>
         <p className="ask">
-          {phase === 'revealing' && 'Dengarkan...'}
+          {phase === 'revealing' && (
+            <>
+              <Equalizer on={started} mini /> Dengarkan...
+            </>
+          )}
           {phase === 'countdown' && <span key={countdownNum} className="count-num small">{countdownNum}</span>}
           {phase === 'choosing' && 'Lanjutkan liriknya!'}
-          {phase === 'done' && (mine?.points > 0 ? 'Benar!' : 'Gagal')}
+          {phase === 'done' && (right ? 'Benar!' : 'Gagal')}
         </p>
-        {penalty > 0 && phase !== 'done' && <span className="penalty-tag">-{penalty}</span>}
+        <span className="penalty-tag">{penalty > 0 && phase !== 'done' ? `-${penalty}` : ''}</span>
       </div>
 
       {phase === 'done' && (
-        <div className="now-playing" style={{ justifyContent: 'center' }}>
+        <div className="song-reveal">
           {q.song.cover && <img src={q.song.cover} alt="" />}
           <span>
             <b>{q.song.title}</b>
             <small>{q.song.artist}</small>
           </span>
-        </div>
-      )}
-
-      {phase === 'done' && (
-        <>
-          <Bit size={72} mood={mine?.points > 0 ? 'happy' : 'sad'} />
-          {mine && mine.points > 0 && (
-            <span className="float-points">
-              +{mine.points}
-              {mine.combo >= 3 && <small> x{comboFactor(mine.combo)}</small>}
+          <Bit size={60} mood={right ? 'happy' : 'sad'} />
+          {mine && mine.points !== 0 && (
+            <span className={`float-points${mine.points < 0 ? ' penalty' : ''}`}>
+              {mine.points > 0 ? `+${mine.points}` : mine.points}
+              {right && mine.combo >= 3 && <small> x{comboFactor(mine.combo)}</small>}
             </span>
           )}
-          {mine && mine.points < 0 && <span className="float-points penalty">{mine.points}</span>}
-        </>
+        </div>
       )}
 
       {(phase === 'choosing' || phase === 'done') && (
@@ -380,7 +389,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
       )}
 
       {phase === 'done' && (
-        <button className="primary" onClick={next} disabled={waiting}>
+        <button className="primary next" onClick={next} disabled={waiting}>
           {waiting ? 'Menyiapkan lagu berikutnya...' : qi + 1 >= total ? 'Lihat hasil' : 'Lanjut'} {!waiting && <ArrowRight size={16} />}
         </button>
       )}

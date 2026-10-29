@@ -82,6 +82,11 @@ h2 {
   color: var(--ink-muted);
 }
 
+/* `hidden` wins over a class that sets display */
+[hidden] {
+  display: none !important;
+}
+
 /* ---------- header ---------- */
 
 .top {
@@ -978,92 +983,264 @@ h2 {
   gap: 16px;
 }
 
-.lyrics-snippet {
-  text-align: center;
-  padding: 20px 24px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  max-width: 460px;
-}
-
-.lyrics-snippet p {
-  font-size: 17px;
-  line-height: 1.7;
-  font-style: italic;
-  color: var(--ink);
+/* home: the quiz shelves, with room between them */
+.picker {
+  display: grid;
+  gap: 26px;
 }
 
 .lyrics-badge {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
-  background: rgb(63 214 198 / 0.12);
-  border: 1px solid rgb(63 214 198 / 0.25);
-  border-radius: 10px;
-  color: #3fd6c6;
+  gap: 8px 10px;
+  border: 1px solid rgb(63 214 198 / 0.3);
+  border-radius: 16px;
+  background: rgb(63 214 198 / 0.1);
+  padding: 10px 10px 10px 14px;
   font-size: 14px;
-  margin-bottom: 8px;
+  color: #3fd6c6;
 }
 
-.lyrics-badge button {
-  color: var(--accent);
-  text-decoration: underline;
+.lyrics-badge span {
+  flex: 1;
+  min-width: 150px;
+  color: var(--ink-muted);
 }
 
-/* Lyrics quiz */
-.lyrics-quiz .lyrics-stage {
+.lyrics-badge b {
+  margin-right: 4px;
+  color: #3fd6c6;
+}
+
+/* ---------- Tebak Lirik: the lyrics card ---------- */
+
+.lyrics-card {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  border: 1px solid rgb(63 214 198 / 0.22);
+  border-radius: 22px;
+  background:
+    radial-gradient(90% 80% at 50% 0%, rgb(63 214 198 / 0.1), transparent 70%),
+    var(--surface);
+  padding: 18px 16px;
+  text-align: center;
+}
+
+.lyrics-card p {
   display: flex;
-  flex-direction: column;
+  min-height: 32px;
   align-items: center;
-  gap: 12px;
-  min-height: 180px;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ink);
+  transition: opacity 0.3s, color 0.3s;
 }
 
-.lyrics-snippet p {
-  animation: lyricFadeIn 0.4s ease;
+/* already sung: fades back so the line being sung stands out */
+.lyrics-card p.past {
+  opacity: 0.45;
 }
 
-@keyframes lyricFadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+.lyrics-card p.now {
+  font-weight: 800;
+  color: #fff;
+  animation: lyric-in 0.35s ease both;
 }
 
-.penalty-tag {
-  color: var(--bad);
-  font-weight: 700;
-  font-size: 0.85rem;
+/* not sung yet: a bar holding its place */
+.lyrics-card p.todo i {
+  display: block;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+@keyframes lyric-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 
 .lyrics-blank {
-  font-size: 1.4rem;
-  font-weight: 700;
-  color: var(--accent);
-  letter-spacing: 4px;
-  animation: lyricPulse 1s ease-in-out infinite;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 6px;
+  color: var(--line);
 }
 
-@keyframes lyricPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+.lyrics-blank.on {
+  color: var(--accent);
+  animation: lyric-pulse 1s ease-in-out infinite;
+}
+
+@keyframes lyric-pulse {
+  50% {
+    opacity: 0.4;
+  }
 }
 
 .lyrics-answer {
-  font-weight: 700;
-  font-size: 1.1rem;
-  padding: 6px 14px;
-  border-radius: 8px;
+  margin-top: 4px;
+  border-radius: 12px;
+  padding: 6px 12px;
+  font-weight: 800;
+  animation: pop 0.35s ease both;
 }
 
 .lyrics-answer.correct {
+  background: rgb(52 224 161 / 0.12);
   color: var(--good);
-  background: rgba(52, 224, 161, 0.1);
 }
 
 .lyrics-answer.missed {
+  background: rgb(255 122 144 / 0.12);
   color: var(--bad);
-  background: rgba(255, 122, 144, 0.1);
+}
+
+@media (max-width: 520px) {
+  .lyrics-card {
+    padding: 14px 12px;
+  }
+
+  .lyrics-card p {
+    min-height: 28px;
+    font-size: 15.5px;
+  }
+}
+
+/* the combo, what to do now, and the penalty so far: one row on any screen */
+.lyrics-quiz .hud {
+  grid-template-columns: 1fr auto 1fr;
+}
+
+.lyrics-quiz .hud .ask {
+  grid-column: auto;
+  grid-row: auto;
+}
+
+.lyrics-quiz .ask {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+}
+
+.penalty-tag {
+  justify-self: end;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--bad);
+}
+
+/* the 3, 2, 1 before the choices, inside the row */
+.count-num.small {
+  font-size: 34px;
+}
+
+/* the song, once the line is answered */
+.song-reveal {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  padding: 10px 12px;
+  animation: pop 0.35s ease both;
+}
+
+.song-reveal img {
+  width: 56px;
+  height: 56px;
+  flex: none;
+  border-radius: 12px;
+}
+
+.song-reveal > span {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+
+.song-reveal b {
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.song-reveal small {
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.song-reveal .bit {
+  flex: none;
+}
+
+.song-reveal .float-points {
+  top: -30px;
+  right: 12px;
+}
+
+/* lyric lines are long: one column, and every word shows */
+.options.lyrics-options {
+  grid-template-columns: 1fr;
+}
+
+.lyrics-options .option {
+  min-height: 58px;
+}
+
+.lyrics-options .option b {
+  display: block;
+  overflow: visible;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+/* the loading bar while songs are checked */
+.load-bar {
+  width: min(240px, 70%);
+  height: 8px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.load-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #3fd6c6, #8b8cff);
+  transform-origin: left;
+  transition: transform 0.4s ease;
+}
+
+/* "next" stays in reach at the bottom of a phone screen */
+.quiz .primary.next {
+  position: sticky;
+  bottom: 14px;
+  z-index: 5;
+}
+
+.recap-line {
+  border-radius: 10px;
+  background: var(--bg);
+  padding: 7px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-muted);
 }
 
 .option.wrong.disabled {
@@ -1114,12 +1291,118 @@ h2 {
   text-align: center;
 }
 
+/* seconds left to pick after raising a hand */
+.buzz-clock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(240px, 100%);
+}
+.buzz-clock b {
+  min-width: 1.2em;
+  font-size: 26px;
+  font-weight: 800;
+  text-align: center;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.buzz-clock span {
+  flex: 1;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.buzz-clock i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ff6b9d, #c471f5);
+  transform-origin: left;
+}
+.buzz-clock.hurry b {
+  color: var(--bad);
+}
+.buzz-clock.hurry i {
+  background: var(--bad);
+}
+
+/* a room's Tebak Lirik switch: a card that lights up when on */
 .toggle-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.9rem;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  padding: 14px 16px;
   color: var(--ink-muted);
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.toggle-row > svg {
+  flex: none;
+}
+
+.toggle-row span {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.toggle-row b {
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.toggle-row small {
+  font-size: 12.5px;
+}
+
+.toggle-row.active {
+  border-color: rgb(63 214 198 / 0.5);
+  background: rgb(63 214 198 / 0.08);
+  color: #3fd6c6;
+}
+
+.toggle-row input {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  flex: none;
+  appearance: none;
+  border-radius: 999px;
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.toggle-row input::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+  content: '';
+  transition: transform 0.2s, background-color 0.2s;
+}
+
+.toggle-row input:checked {
+  background: #1f8f73;
+}
+
+.toggle-row input:checked::after {
+  background: #fff;
+  transform: translateX(20px);
+}
+
+.toggle-row input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .eq {
@@ -1138,6 +1421,31 @@ h2 {
 
 .eq.on i {
   animation: eq 0.7s ease-in-out infinite alternate;
+}
+
+/* small bars beside "Dengarkan..." */
+.eq.mini {
+  height: 20px;
+  gap: 3px;
+}
+
+.eq.mini i {
+  width: 4px;
+  height: 5px;
+  border-radius: 2px;
+}
+
+.eq.mini.on i {
+  animation-name: eq-mini;
+}
+
+@keyframes eq-mini {
+  from {
+    height: 4px;
+  }
+  to {
+    height: 20px;
+  }
 }
 
 @keyframes eq {
@@ -1170,12 +1478,31 @@ h2 {
   min-width: 0;
 }
 
+/* a long title takes two lines before it's cut */
 .now-playing b {
+  display: -webkit-box;
   overflow: hidden;
   font-size: 19px;
   font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+@media (max-width: 520px) {
+  .now-playing img {
+    width: 84px;
+    height: 84px;
+  }
+
+  .now-playing b {
+    font-size: 17px;
+  }
+
+  .stage .now-playing + .bit {
+    width: 64px;
+    height: 64px;
+  }
 }
 
 .now-playing small {
@@ -1365,15 +1692,20 @@ h2 {
   flex: 1;
 }
 
-.option b,
 .option small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* a long title takes two lines before it's cut */
 .option b {
+  display: -webkit-box;
+  overflow: hidden;
   font-size: 15px;
+  line-height: 1.3;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .option small {
@@ -1459,6 +1791,9 @@ h2 {
   background-clip: text;
   color: transparent;
 }
+.final.negative {
+  background-image: linear-gradient(90deg, #ff8a8a, #e0566b);
+}
 
 .rank {
   border-radius: 999px;
@@ -1499,6 +1834,18 @@ h2 {
 .result-stats dd {
   font-size: 17px;
   font-weight: 800;
+  white-space: nowrap;
+}
+
+.result-stats.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* four numbers don't fit a phone in one row: two by two */
+@media (max-width: 440px) {
+  .result-stats:not(.three) {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .confetti {
@@ -2295,6 +2642,13 @@ a.lyrics-note:hover {
 .seat.empty b {
   font-weight: 600;
   color: var(--ink-muted);
+}
+
+/* on a phone the seats sit above the settings: one empty seat is enough to show there's room */
+@media (max-width: 819px) {
+  .seat.empty ~ .seat.empty {
+    display: none;
+  }
 }
 
 .lobby-main {

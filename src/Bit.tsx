@@ -42,10 +42,10 @@ export function Bit({ size = 160, mood = 'idle' }: { size?: number; mood?: 'idle
   )
 }
 
-/** Bars that bounce while the song plays. */
-export function Equalizer({ on }: { on: boolean }) {
+/** Bars that bounce while the song plays; `mini` sits inside a line of text. */
+export function Equalizer({ on, mini }: { on: boolean; mini?: boolean }) {
   return (
-    <span className={`eq${on ? ' on' : ''}`} aria-hidden>
+    <span className={`eq${mini ? ' mini' : ''}${on ? ' on' : ''}`} aria-hidden>
       {Array.from({ length: 5 }, (_, i) => (
         <i key={i} style={{ animationDelay: `${i * 0.12}s` }} />
       ))}

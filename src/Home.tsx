@@ -89,7 +89,7 @@ export function Home({ profile, onProfile, onStart: start, onLyrics, onParty }: 
           <button className="mode lyrics" onClick={() => scrollToQuizzes(true)}>
             <FileText size={22} />
             <b>Tebak Lirik</b>
-            <small>Baca potongan lirik, tebak lagunya</small>
+            <small>Dengarkan lagunya, lanjutkan liriknya</small>
           </button>
           <button className="mode friends" onClick={onParty}>
             <Users size={22} />
@@ -115,14 +115,20 @@ export function Home({ profile, onProfile, onStart: start, onLyrics, onParty }: 
         </section>
       )}
 
-      <SettingsPanel settings={settings} setMode={setMode} setLevel={setLevel} setCount={setCount} />
+      {/* in Tebak Lirik you always continue the lyrics, so "what to guess" doesn't apply */}
+      <SettingsPanel settings={settings} setMode={setMode} setLevel={setLevel} setCount={setCount} hideMode={lyricsMode} />
 
-      <div id="kuis">
+      <div id="kuis" className="picker">
         {lyricsMode && (
-          <p className="lyrics-badge">
-            <FileText size={14} /> Mode Tebak Lirik aktif.{' '}
-            <button className="ghost small" onClick={() => setLyricsMode(false)}>Kembali ke Tebak Lagu</button>
-          </p>
+          <div className="lyrics-badge">
+            <FileText size={16} />
+            <span>
+              <b>Mode Tebak Lirik</b> Pilih kuis di bawah.
+            </span>
+            <button className="ghost small" onClick={() => setLyricsMode(false)}>
+              Kembali ke Tebak Lagu
+            </button>
+          </div>
         )}
         <QuizPicker onStart={onStart} />
       </div>
