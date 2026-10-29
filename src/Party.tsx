@@ -11,6 +11,7 @@ import { SettingsPanel, type GameSettings } from './Settings'
 import { sfx } from './sfx'
 import type { Mode, Question, QuizSource, Song } from './types'
 
+const PEER_CONFIG = { host: 'peer.allegiaant.net', port: 443, path: '/peer', secure: true }
 const HOST = 'host'
 const NO_WEBRTC = 'Browser ini tidak bisa main bareng. Kalau link-nya terbuka di dalam aplikasi (Instagram, LINE, dll.), buka di Chrome atau Safari.'
 /** Seconds after a song starts before the host closes it anyway (slow loading, someone away). */
@@ -225,7 +226,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
       const open = (tries: number) => {
         if (closed) return
         const c = newCode()
-        const p = new Peer(peerId(c))
+        const p = new Peer(peerId(c), PEER_CONFIG)
         peer.current = p
         let opened = false
         p.on('open', () => {
@@ -285,7 +286,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     } else if (typeof RTCPeerConnection === 'undefined') fail(NO_WEBRTC)
     else {
       const room = code.toUpperCase()
-      const p = new Peer()
+      const p = new Peer(undefined, PEER_CONFIG)
       peer.current = p
       p.on('open', (id) => {
         if (closed) return p.destroy()
