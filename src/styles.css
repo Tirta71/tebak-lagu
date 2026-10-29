@@ -594,6 +594,11 @@ h2 {
   box-shadow: 0 14px 30px rgb(91 92 240 / 0.3);
 }
 
+.mode.lyrics {
+  background: linear-gradient(135deg, #3fd6c6, #1f8f73);
+  box-shadow: 0 14px 30px rgb(31 143 115 / 0.3);
+}
+
 .mode.friends {
   background: linear-gradient(135deg, #ff8ab4, #c3407a);
   box-shadow: 0 14px 30px rgb(195 64 122 / 0.28);
@@ -971,6 +976,40 @@ h2 {
   align-items: center;
   justify-content: center;
   gap: 16px;
+}
+
+.lyrics-snippet {
+  text-align: center;
+  padding: 20px 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  max-width: 460px;
+}
+
+.lyrics-snippet p {
+  font-size: 17px;
+  line-height: 1.7;
+  font-style: italic;
+  color: var(--ink);
+}
+
+.lyrics-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: rgb(63 214 198 / 0.12);
+  border: 1px solid rgb(63 214 198 / 0.25);
+  border-radius: 10px;
+  color: #3fd6c6;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.lyrics-badge button {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .eq {

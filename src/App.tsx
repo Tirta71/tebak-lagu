@@ -5,6 +5,7 @@ import { Party } from './Party'
 import { PartyHome } from './PartyHome'
 import { useGameSettings } from './Settings'
 import { Quiz } from './Quiz'
+import { LyricsQuiz } from './LyricsQuiz'
 import { Result } from './Result'
 import { readProfile, type Profile } from './local'
 import type { Answer, Mode, QuizSource } from './types'
@@ -15,7 +16,7 @@ import type { Answer, Mode, QuizSource } from './types'
  * you're right, the more points. Audio is Deezer's 30-second previews; lyrics come from Genius.
  */
 
-type Screen = { at: 'home' } | { at: 'party-home' } | { at: 'party'; role: 'host' | 'guest'; code: string } | { at: 'quiz'; source: QuizSource; run: number } | { at: 'result'; source: QuizSource; name: string; answers: Answer[]; mode: Mode }
+type Screen = { at: 'home' } | { at: 'party-home' } | { at: 'party'; role: 'host' | 'guest'; code: string } | { at: 'quiz'; source: QuizSource; run: number } | { at: 'lyrics'; source: QuizSource; run: number } | { at: 'result'; source: QuizSource; name: string; answers: Answer[]; mode: Mode }
 
 export function App() {
   const [profile, setProfile] = useState<Profile>(readProfile)
@@ -33,6 +34,10 @@ export function App() {
   }
   const start = (source: QuizSource) => {
     setScreen({ at: 'quiz', source, run: Date.now() })
+    scrollTo({ top: 0 })
+  }
+  const startLyrics = (source: QuizSource) => {
+    setScreen({ at: 'lyrics', source, run: Date.now() })
     scrollTo({ top: 0 })
   }
 
@@ -59,12 +64,14 @@ export function App() {
             profile={profile}
             onProfile={setProfile}
             onStart={start}
+            onLyrics={startLyrics}
             onParty={() => setScreen({ at: 'party-home' })}
           />
         )}
         {screen.at === 'party-home' && <PartyHome onBack={home} onCreate={() => setScreen({ at: 'party', role: 'host', code: '' })} onJoin={(code) => setScreen({ at: 'party', role: 'guest', code })} />}
         {screen.at === 'party' && <Party key={`${screen.role}-${screen.code}`} role={screen.role} code={screen.code} initial={gameSettings} profile={profile} onProfile={setProfile} onLeave={home} />}
         {screen.at === 'quiz' && <Quiz key={screen.run} source={screen.source} onQuit={home} onDone={(answers, name, mode) => setScreen({ at: 'result', source: screen.source, name, answers, mode })} />}
+        {screen.at === 'lyrics' && <LyricsQuiz key={screen.run} source={screen.source} onQuit={home} onDone={(answers, name, mode) => setScreen({ at: 'result', source: screen.source, name, answers, mode })} />}
         {screen.at === 'result' && <Result source={screen.source} name={screen.name} answers={screen.answers} mode={screen.mode} profile={profile} onAgain={() => start(screen.source)} onHome={home} />}
       </main>
     </div>

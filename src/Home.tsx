@@ -1,4 +1,5 @@
-import { Trophy, User, Users, Zap } from 'lucide-react'
+import { useState } from 'react'
+import { FileText, Trophy, User, Users, Zap } from 'lucide-react'
 import { Bit } from './Bit'
 import { AVATARS, readBests, saveProfile, type Profile } from './local'
 import { LEVELS } from './levels'
@@ -28,14 +29,22 @@ function ProfileCard({ profile, onChange }: { profile: Profile; onChange: (p: Pr
   )
 }
 
-export function Home({ profile, onProfile, onStart: start, onParty }: { profile: Profile; onProfile: (p: Profile) => void; onStart: (q: QuizSource) => void; onParty: () => void }) {
+export function Home({ profile, onProfile, onStart: start, onLyrics, onParty }: { profile: Profile; onProfile: (p: Profile) => void; onStart: (q: QuizSource) => void; onLyrics: (q: QuizSource) => void; onParty: () => void }) {
   const { settings, setMode, setLevel, setCount } = useGameSettings()
   const { mode, level, count } = settings
+  const [lyricsMode, setLyricsMode] = useState(false)
   // artist quizzes are always "guess the title": every song is by the same singer
-  const onStart = (q: QuizSource) => start({ ...q, level, count, mode: q.key.startsWith('artist:') ? 'title' : mode })
+  const onStart = (q: QuizSource) => {
+    const src = { ...q, level, count, mode: q.key.startsWith('artist:') ? 'title' : mode }
+    if (lyricsMode) onLyrics(src)
+    else start(src)
+  }
   const bests = readBests().sort((a, b) => b.score - a.score).slice(0, 5)
 
-  const scrollToQuizzes = () => document.getElementById('kuis')?.scrollIntoView({ behavior: 'smooth' })
+  const scrollToQuizzes = (lyrics?: boolean) => {
+    if (lyrics !== undefined) setLyricsMode(lyrics)
+    document.getElementById('kuis')?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   return (
     <>
@@ -72,10 +81,15 @@ export function Home({ profile, onProfile, onStart: start, onParty }: { profile:
       <div className="two">
         <ProfileCard profile={profile} onChange={onProfile} />
         <section className="modes">
-          <button className="mode solo" onClick={scrollToQuizzes}>
+          <button className="mode solo" onClick={() => scrollToQuizzes(false)}>
             <Zap size={22} />
             <b>Main sendiri</b>
             <small>Pilih kuis di bawah dan kejar skor tertinggi</small>
+          </button>
+          <button className="mode lyrics" onClick={() => scrollToQuizzes(true)}>
+            <FileText size={22} />
+            <b>Tebak Lirik</b>
+            <small>Baca potongan lirik, tebak lagunya</small>
           </button>
           <button className="mode friends" onClick={onParty}>
             <Users size={22} />
@@ -104,6 +118,12 @@ export function Home({ profile, onProfile, onStart: start, onParty }: { profile:
       <SettingsPanel settings={settings} setMode={setMode} setLevel={setLevel} setCount={setCount} />
 
       <div id="kuis">
+        {lyricsMode && (
+          <p className="lyrics-badge">
+            <FileText size={14} /> Mode Tebak Lirik aktif.{' '}
+            <button className="ghost small" onClick={() => setLyricsMode(false)}>Kembali ke Tebak Lagu</button>
+          </p>
+        )}
         <QuizPicker onStart={onStart} />
       </div>
     </>
