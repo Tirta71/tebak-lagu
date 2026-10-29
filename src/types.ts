@@ -6,7 +6,10 @@ import type { Level } from './levels'
 export type Mode = 'title' | 'artist' | 'both'
 
 /** Which songs a quiz uses; `key` names it for best scores. `daily` is the date of a daily challenge. */
-export type QuizSource = { key: string; name: string; query: string; picture?: string | null; mode?: Mode; level?: Level; daily?: string }
+/** How many songs a quiz plays: a number, or every song it has. */
+export type Count = 5 | 10 | 15 | 20 | 'all'
+
+export type QuizSource = { key: string; name: string; query: string; picture?: string | null; mode?: Mode; level?: Level; count?: Count; daily?: string }
 
 /** One song: `kind` says whether this one asks for the title or the singer. */
 export type Question = { answer: Song; options: Song[]; kind: 'title' | 'artist' }

@@ -4,13 +4,14 @@ import { Bit } from './Bit'
 import { AVATARS, readBests, readDaily, saveProfile, type Profile } from './local'
 import { LEVELS, LEVEL_ORDER, type Level } from './levels'
 import { today } from './random'
-import type { Mode, QuizSource } from './types'
+import type { Count, Mode, QuizSource } from './types'
 
 type Artist = { id: number; name: string; picture: string; fans: number }
 type Genre = { id: number; name: string; picture: string }
 type Catalog = { artists: Artist[]; genres: Genre[]; decades: number[]; error?: string }
 
 const PETRO_JAM = 'https://open.spotify.com/playlist/16iEQxHem0W1B5Di8jCpjH'
+const COUNTS: Count[] = [5, 10, 15, 20]
 
 /** A quiz to pick: a picture card (or a coloured one), its name over a shade at the bottom. */
 function Tile({ name, sub, picture, round, tint, onPick }: { name: string; sub?: string; picture?: string | null; round?: boolean; tint?: string; onPick: () => void }) {
@@ -112,8 +113,25 @@ export function Home({ profile, onProfile, onStart: start }: { profile: Profile;
       /* storage unavailable */
     }
   }
+  // how many songs; remembered too
+  const [count, setCount] = useState<Count>(() => {
+    try {
+      const v = localStorage.getItem('tl-count')
+      return v === 'all' ? 'all' : COUNTS.includes(Number(v) as Count) ? (Number(v) as Count) : 10
+    } catch {
+      return 10
+    }
+  })
+  const pickCount = (c: Count) => {
+    setCount(c)
+    try {
+      localStorage.setItem('tl-count', String(c))
+    } catch {
+      /* storage unavailable */
+    }
+  }
   // artist quizzes are always "guess the title": every song is by the same singer
-  const onStart = (q: QuizSource) => start({ ...q, level, mode: q.key.startsWith('artist:') ? 'title' : mode })
+  const onStart = (q: QuizSource) => start({ ...q, level, count, mode: q.key.startsWith('artist:') ? 'title' : mode })
   const day = today()
   const daily = readDaily(day)
   const [catalog, setCatalog] = useState<Catalog | null>(null)
@@ -159,16 +177,20 @@ export function Home({ profile, onProfile, onStart: start }: { profile: Profile;
             <br />
             <span>tebak lagunya.</span>
           </h1>
-          <p>10 lagu per kuis, 4 pilihan judul, 15 detik untuk menjawab. Makin cepat benar, makin besar poinnya.</p>
+          {/* follows the settings below */}
+          <p>
+            {count === 'all' ? 'Semua lagu di kuis' : `${count} lagu per kuis`}, 4 pilihan jawaban, {LEVELS[level].seconds} detik untuk menjawab. Makin cepat benar, makin
+            besar poinnya.
+          </p>
           <div className="hero-facts">
             <span>
-              <b>10</b> lagu
+              <b>{count === 'all' ? 'Semua' : count}</b> lagu
             </span>
             <span>
-              <b>15</b> detik
+              <b>{LEVELS[level].seconds}</b> detik
             </span>
             <span>
-              <b>1000</b> poin maks
+              <b>{Math.round(1000 * LEVELS[level].factor)}</b> poin maks
             </span>
           </div>
         </div>
@@ -178,7 +200,7 @@ export function Home({ profile, onProfile, onStart: start }: { profile: Profile;
       </section>
 
       {/* the daily challenge: the same ten songs for everyone today */}
-      <button className="daily" onClick={() => start({ key: 'daily', name: 'Tantangan Harian', query: 'kind=genre&id=0', mode: 'title', level: 'normal', daily: day })}>
+      <button className="daily" onClick={() => start({ key: 'daily', name: 'Tantangan Harian', query: 'kind=genre&id=0', mode: 'title', level: 'normal', count: 10, daily: day })}>
         <span className="daily-icon" aria-hidden>
           <CalendarDays size={24} />
         </span>
@@ -257,6 +279,16 @@ export function Home({ profile, onProfile, onStart: start }: { profile: Profile;
                 <small>
                   {LEVELS[l].seconds} dtk · ×{LEVELS[l].factor}
                 </small>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="setting">
+          <h3>Jumlah lagu</h3>
+          <div className="seg counts" role="radiogroup" aria-label="Jumlah lagu">
+            {[...COUNTS, 'all' as const].map((c) => (
+              <button key={c} role="radio" aria-checked={count === c} onClick={() => pickCount(c)}>
+                <b>{c === 'all' ? 'Semua' : c}</b>
               </button>
             ))}
           </div>

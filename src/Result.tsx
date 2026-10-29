@@ -20,8 +20,9 @@ export function Result({ source, name, answers, mode, profile, onAgain, onHome }
   useEffect(() => {
     // each mode and level keeps its own best score
     const level = source.level ?? 'normal'
-    const key = `${source.key}:${mode}:${level}`
-    setBest(saveBest({ key, name: `${name}${mode === 'artist' ? ' · penyanyi' : mode === 'both' ? ' · acak' : ''} · ${LEVELS[level].label}`, score, at: Date.now() }))
+    // a longer quiz scores more, so each length keeps its own best too
+    const key = `${source.key}:${mode}:${level}:${source.count ?? 10}`
+    setBest(saveBest({ key, name: `${name}${mode === 'artist' ? ' · penyanyi' : mode === 'both' ? ' · acak' : ''} · ${LEVELS[level].label} · ${source.count === 'all' ? 'semua' : (source.count ?? 10)} lagu`, score, at: Date.now() }))
     if (source.daily) saveDaily({ day: source.daily, score, marks: answers.map((a) => a.points > 0) })
   }, [source.key, source.daily, name, score, mode, answers])
 

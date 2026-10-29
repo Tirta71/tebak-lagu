@@ -4,6 +4,7 @@
 //   ?kind=decade&id=1990      an editor's hits playlist for the decade
 //   ?kind=indonesia           an editor's Indonesian hits playlist
 //   ?kind=playlist&url=<spotify playlist link>  a Spotify playlist, each song found on Deezer
+//   &want=<n|all>             how many songs the quiz needs (a Spotify playlist is only looked up that far)
 import { deezer, editorPlaylist, json, song } from './_deezer.js'
 import { GET as spotifyPlaylist } from './playlist.js'
 import { GET as findOnDeezer } from './deezer.js'
@@ -35,7 +36,7 @@ async function fromSpotify(url, want) {
   const found = []
   const queue = shuffle(j.tracks)
   while (found.length < want && queue.length) {
-    const batch = queue.splice(0, 6)
+    const batch = queue.splice(0, 8)
     const hits = await Promise.all(batch.map((t) => findOnDeezer(new Request(`http://x/api/deezer?${new URLSearchParams({ find: t.title, artist: t.artist })}`)).then((r) => (r.ok ? r.json() : null))))
     found.push(...hits.filter(Boolean))
   }
@@ -65,7 +66,9 @@ export async function GET(request) {
       name = kind === 'decade' ? `Hits ${String(id).slice(2)}an` : 'Hits Indonesia'
       tracks = await fromPlaylist(pl.id)
     } else if (kind === 'playlist') {
-      const r = await fromSpotify(p.get('url') ?? '', 18)
+      // a few spare for the wrong answers; "all" looks up the whole playlist (up to 100 songs)
+      const want = p.get('want') === 'all' ? 100 : Math.min(100, Math.max(4, Number(p.get('want')) || 10) + 6)
+      const r = await fromSpotify(p.get('url') ?? '', want)
       name = r.name
       tracks = r.tracks
     } else return json({ error: 'kind?' }, 'no-store', 400)

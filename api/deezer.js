@@ -2,6 +2,7 @@
 // directly). Its 30-second previews are free to play with credit to Deezer, no login needed.
 //   /api/deezer?find=<title>&artist=<artist>  the best match that has a preview
 //   /api/deezer?q=<words>                     songs for the guess box
+import { deezer } from './_deezer.js'
 import { norm, sameArtist } from './_match.js'
 
 const json = (body, cache = 'no-store', status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': cache } })
@@ -9,9 +10,7 @@ const json = (body, cache = 'no-store', status = 200) => new Response(JSON.strin
 const song = (t) => ({ id: t.id, title: t.title, artist: t.artist.name, cover: t.album.cover_medium, preview: t.preview, link: t.link })
 
 async function search(q, limit) {
-  const res = await fetch(`https://api.deezer.com/search?${new URLSearchParams({ q, limit: String(limit) })}`)
-  const j = await res.json()
-  if (j.error) throw new Error(j.error.message)
+  const j = await deezer(`/search?${new URLSearchParams({ q, limit: String(limit) })}`)
   return j.data ?? []
 }
 

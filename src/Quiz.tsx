@@ -7,7 +7,6 @@ import { isMuted, setMuted, sfx } from './sfx'
 import { LEVELS, type LevelRules } from './levels'
 import type { Answer, Mode, Question, QuizSource, Song } from './types'
 
-export const QUESTIONS = 10
 export const MODE_LABEL: Record<Mode, string> = { title: 'Tebak judul', artist: 'Tebak penyanyi', both: 'Judul / penyanyi acak' }
 const ASK = { title: 'Lagu apa ini?', artist: 'Siapa penyanyinya?' }
 const EXTRA = 5
@@ -19,10 +18,10 @@ const PREVIEW = 30
  * singer) songs by other artists. In the mixed mode each song is one or the other at random. A
  * seeded random source gives everyone the same quiz.
  */
-function makeQuestions(pool: Song[], mode: Mode, rng: Rng, sameArtist: boolean): Question[] {
+function makeQuestions(pool: Song[], mode: Mode, rng: Rng, sameArtist: boolean, count: number): Question[] {
   const singer = (s: Song) => norm(s.artist.split(',')[0])
   const songs = shuffle(pool, rng)
-  return songs.slice(0, QUESTIONS).map((answer) => {
+  return songs.slice(0, count).map((answer) => {
     const kind = mode === 'both' ? (rng() < 0.5 ? 'title' : 'artist') : mode
     const key = (s: Song) => (kind === 'artist' ? singer(s) : norm(s.title))
     // on harder levels, other songs by the same singer come first, so the singer gives nothing away
@@ -68,7 +67,7 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
 
   useEffect(() => {
     let alive = true
-    fetch(`/api/quiz?${source.query}`)
+    fetch(`/api/quiz?${source.query}&want=${source.count ?? 10}`)
       .then((r) => r.json())
       .catch(() => ({ error: 'Tidak bisa tersambung. Coba lagi.' }))
       .then((j) => {
@@ -77,7 +76,9 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
         setName(source.name === 'Playlist kamu' && j.name ? j.name : source.name)
         const m: Mode = source.mode !== 'title' && source.mode && enoughArtists(j.tracks) ? source.mode : 'title'
         setMode(m)
-        setQuestions(makeQuestions(j.tracks, m, source.daily ? seeded(`${source.daily}:${source.key}`) : Math.random, rules.sameArtist))
+        // "all" plays every song that has a preview
+        const count = source.count === 'all' ? j.tracks.length : (source.count ?? 10)
+        setQuestions(makeQuestions(j.tracks, m, source.daily ? seeded(`${source.daily}:${source.key}`) : Math.random, rules.sameArtist, count))
       })
     return () => {
       alive = false
@@ -259,7 +260,7 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
         </b>
       </header>
 
-      <div className="progress" aria-label={`Lagu ${i + 1} dari ${questions.length}`}>
+      <div className={`progress${questions.length > 20 ? ' many' : ''}`} style={{ gridTemplateColumns: `repeat(${questions.length}, 1fr)` }} aria-label={`Lagu ${i + 1} dari ${questions.length}`}>
         {questions.map((_, k) => {
           const a = answers[k]
           return <i key={k} className={a ? (a.points ? 'right' : 'wrong') : k === i ? 'now' : ''} />

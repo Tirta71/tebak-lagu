@@ -1,8 +1,13 @@
 // Deezer's public API (no key). Shared by the quiz functions; Deezer doesn't answer browsers
 // directly, so the site asks it from the server.
-export async function deezer(path) {
+export async function deezer(path, tries = 3) {
   const res = await fetch(`https://api.deezer.com${path}`)
   const j = await res.json()
+  // Deezer allows about 50 requests per 5 seconds; when that's hit (error code 4), wait and try again
+  if (j.error?.code === 4 && tries > 1) {
+    await new Promise((r) => setTimeout(r, 1500))
+    return deezer(path, tries - 1)
+  }
   if (j.error) throw new Error(j.error.message ?? 'deezer')
   return j
 }

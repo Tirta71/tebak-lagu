@@ -437,6 +437,11 @@ h2 {
   .settings {
     grid-template-columns: 0.9fr 1.4fr;
   }
+
+  /* the song count spans the width under the other two */
+  .settings .setting:last-child {
+    grid-column: 1 / -1;
+  }
 }
 
 .setting {
@@ -468,6 +473,16 @@ h2 {
 
 .seg.levels {
   grid-template-columns: repeat(4, 1fr);
+}
+
+.seg.counts {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.counts button {
+  --lv: #8b8cff;
+  min-height: 62px;
+  font-size: 15px;
 }
 
 @media (max-width: 480px) {
@@ -933,6 +948,11 @@ h2 {
   display: grid;
   grid-template-columns: repeat(10, 1fr);
   gap: 5px;
+}
+
+/* a long quiz: thinner, tighter steps */
+.progress.many {
+  gap: 2px;
 }
 
 .progress i {
