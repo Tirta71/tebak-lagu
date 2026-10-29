@@ -25,10 +25,13 @@ export type PublicQuestion = { i: number; total: number; kind: 'title' | 'artist
 export type RoundResult = { id: string; picked: number | null; points: number; first: boolean; right: boolean; seconds: number | null }
 
 /** The room's set-up, as everyone sees it: the quiz (once picked), what to guess, how hard, how many. */
-export type Settings = { quiz: string | null; picture?: string | null; mode: Mode; level: Level; count: Count }
+export type Settings = { quiz: string | null; picture?: string | null; mode: Mode; level: Level; count: Count; lyrics?: boolean }
 
 /** Where the host is in setting up: 1 settings, 2 picking a quiz, 3 ready to start. */
 export type Step = 'atur' | 'kuis' | 'main'
+
+/** A lyrics question: lines are revealed one by one; players buzz to answer. */
+export type LyricsPublicQuestion = { i: number; total: number; preview: string; lines: string[]; options: { id: number; title: string; artist: string }[] }
 
 /** Host → guests. */
 export type HostMsg =
@@ -39,12 +42,22 @@ export type HostMsg =
   | { t: 'reveal'; i: number; answer: Song; results: RoundResult[]; players: Player[] }
   | { t: 'end'; players: Player[] }
   | { t: 'full' }
+  // lyrics mode messages
+  | { t: 'lq'; q: LyricsPublicQuestion }
+  | { t: 'lq-line'; i: number; lineIdx: number }
+  | { t: 'lq-buzz-ok'; id: string }
+  | { t: 'lq-buzz-taken'; id: string; name: string }
+  | { t: 'lq-wrong'; id: string; penalty: number }
+  | { t: 'lq-correct'; id: string; points: number }
 
 /** Guest → host. */
 export type GuestMsg =
   | { t: 'hello'; name: string; avatar: string }
   | { t: 'answer'; i: number; id: number | null; seconds: number }
   | { t: 'profile'; name: string; avatar: string }
+  // lyrics mode messages
+  | { t: 'lq-buzz'; i: number }
+  | { t: 'lq-answer'; i: number; id: number }
 
 /** Extra points for the fastest right answer on each song (on top of its points for speed). */
 export const FIRST_BONUS = 200

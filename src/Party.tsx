@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Peer, { type DataConnection } from 'peerjs'
-import { ArrowLeft, Check, ChevronRight, Copy, Crown, History, ListMusic, LogOut, Pencil, Play, RotateCcw, Settings2, Trophy, Users, Volume2, X, Zap } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Copy, Crown, FileText, Hand, History, ListMusic, LogOut, Pencil, Play, RotateCcw, Settings2, Trophy, Users, Volume2, X, Zap } from 'lucide-react'
 import { Bit, Equalizer } from './Bit'
 import { LEVELS } from './levels'
 import { AVATARS, saveProfile, type Profile } from './local'
 import { QuizPicker } from './QuizPicker'
-import { ANSWER_DELAY, FIRST_BONUS, MAX_PLAYERS, WRONG_PENALTY, newCode, peerId, type GuestMsg, type HostMsg, type Player, type PublicQuestion, type RoundResult, type Settings, type Step } from './room'
+import { ANSWER_DELAY, FIRST_BONUS, MAX_PLAYERS, WRONG_PENALTY, newCode, peerId, type GuestMsg, type HostMsg, type LyricsPublicQuestion, type Player, type PublicQuestion, type RoundResult, type Settings, type Step } from './room'
 import { enoughArtists, makeQuestions, MODE_LABEL, pointsFor } from './Quiz'
 import { SettingsPanel, type GameSettings } from './Settings'
 import { sfx } from './sfx'
@@ -17,7 +17,7 @@ const NO_WEBRTC = 'Browser ini tidak bisa main bareng. Kalau link-nya terbuka di
 /** Seconds after a song starts before the host closes it anyway (slow loading, someone away). */
 const GRACE = 3
 
-type Phase = 'connecting' | 'lobby' | 'loading' | 'question' | 'reveal' | 'end' | 'error'
+type Phase = 'connecting' | 'lobby' | 'loading' | 'question' | 'reveal' | 'end' | 'error' | 'lyrics-q'
 /** A song that has been played: its answer and how everyone did. */
 type Round = { i: number; answer: Song; results: RoundResult[] }
 type View = {
@@ -30,9 +30,13 @@ type View = {
   reveal: { answer: Song; results: RoundResult[] } | null
   history: Round[]
   error: string | null
+  // lyrics mode
+  lq: LyricsPublicQuestion | null
+  buzzer: string | null
+  buzzerName: string | null
 }
 
-const blank: View = { phase: 'connecting', players: [], settings: null, step: 'atur', q: null, answered: [], reveal: null, history: [], error: null }
+const blank: View = { phase: 'connecting', players: [], settings: null, step: 'atur', q: null, answered: [], reveal: null, history: [], error: null, lq: null, buzzer: null, buzzerName: null }
 
 /** Everyone, highest score first. */
 const ranked = (players: Player[]) => [...players].sort((a, b) => b.score - a.score)
@@ -86,6 +90,21 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
           return { ...v, phase: 'end', players: m.players }
         case 'full':
           return { ...v, phase: 'error', error: 'Room sudah penuh.' }
+        // lyrics mode
+        case 'lq':
+          return { ...v, phase: 'lyrics-q', lq: m.q, answered: [], buzzer: null, buzzerName: null }
+        case 'lq-buzz-ok':
+          return { ...v, buzzer: m.id, buzzerName: null }
+        case 'lq-buzz-taken':
+          return { ...v, buzzer: m.id, buzzerName: m.name }
+        case 'lq-wrong':
+          return { ...v, buzzer: null, buzzerName: null }
+        case 'lq-correct':
+          return v // reveal message follows
+        case 'lq-line':
+          return v // lines are already in the question
+        default:
+          return v
       }
     })
   }, [])
@@ -112,7 +131,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
   )
 
   const configure = useCallback(
-    (patch: Partial<GameSettings>) => {
+    (patch: Partial<GameSettings> & { lyrics?: boolean }) => {
       settings.current = { ...settings.current, ...patch }
       lobby()
     },
@@ -179,6 +198,91 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     [emit, finish],
   )
 
+  // ---------- host: lyrics mode ----------
+
+  type LyricsQ = Question & { lines: string[] }
+  const lyricsQuestions = useRef<LyricsQ[]>([])
+  const lyricsBuzzer = useRef<string | null>(null)
+  const lyricsWrongIds = useRef(new Set<number>())
+  const lyricsLineTimer = useRef(0)
+  const lyricsPenalties = useRef(new Map<string, number>())
+
+  const askLyrics = useCallback((i: number) => {
+    const q = lyricsQuestions.current[i]
+    if (!q?.answer.preview) return
+    current.current = i
+    lyricsBuzzer.current = null
+    lyricsWrongIds.current = new Set()
+    lyricsPenalties.current = new Map()
+    clearInterval(lyricsLineTimer.current)
+    emit({ t: 'lq', q: { i, total: lyricsQuestions.current.length, preview: q.answer.preview, lines: q.lines, options: q.options.map(({ id, title, artist }) => ({ id, title, artist })) } })
+    // auto-finish after all lines + grace
+    clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => {
+      finishLyrics(i)
+    }, (q.lines.length * 2.5 + 8) * 1000)
+  }, [emit])
+
+  const finishLyrics = useCallback((qi: number) => {
+    clearTimeout(timer.current)
+    clearInterval(lyricsLineTimer.current)
+    const q = lyricsQuestions.current[qi]
+    if (!q) return
+    const results: RoundResult[] = [...players.current.values()].map((p) => {
+      const pen = lyricsPenalties.current.get(p.id) ?? 0
+      if (pen > 0) p.score -= pen
+      return { id: p.id, picked: null, points: -pen, first: false, right: false, seconds: null }
+    })
+    current.current = qi + 0.5
+    emit({ t: 'reveal', i: qi, answer: q.answer, results, players: [...players.current.values()] })
+  }, [emit])
+
+  const onLyricsBuzz = useCallback((from: string, qi: number) => {
+    if (qi !== current.current || lyricsBuzzer.current !== null) return
+    lyricsBuzzer.current = from
+    const p = players.current.get(from)
+    // tell the buzzer they got it
+    const conn = conns.current.get(from)
+    if (conn?.open) conn.send({ t: 'lq-buzz-ok', id: from } satisfies HostMsg)
+    // tell everyone else someone buzzed
+    for (const [id, c] of conns.current) {
+      if (id !== from && c.open) c.send({ t: 'lq-buzz-taken', id: from, name: p?.name ?? '?' } satisfies HostMsg)
+    }
+    // host sees it too
+    if (from === HOST) apply({ t: 'lq-buzz-ok', id: from })
+    else apply({ t: 'lq-buzz-taken', id: from, name: p?.name ?? '?' })
+  }, [apply])
+
+  const onLyricsAnswer = useCallback((from: string, qi: number, songId: number) => {
+    if (qi !== Math.floor(current.current) || lyricsBuzzer.current !== from) return
+    const q = lyricsQuestions.current[Math.floor(qi)]
+    if (!q) return
+    if (songId === q.answer.id) {
+      // correct!
+      const rules = rulesOf()
+      const pen = lyricsPenalties.current.get(from) ?? 0
+      const pts = Math.max(100, Math.round(800 * rules.factor) - pen)
+      const p = players.current.get(from)
+      if (p) p.score += pts
+      clearTimeout(timer.current)
+      clearInterval(lyricsLineTimer.current)
+      const results: RoundResult[] = [...players.current.values()].map((pl) => {
+        const myPen = lyricsPenalties.current.get(pl.id) ?? 0
+        if (myPen > 0 && pl.id !== from) pl.score -= myPen
+        return { id: pl.id, picked: pl.id === from ? songId : null, points: pl.id === from ? pts : -myPen, first: pl.id === from, right: pl.id === from, seconds: null }
+      })
+      current.current = qi + 0.5
+      emit({ t: 'reveal', i: qi, answer: q.answer, results, players: [...players.current.values()] })
+    } else {
+      // wrong
+      lyricsBuzzer.current = null
+      lyricsWrongIds.current.add(songId)
+      const pen = (lyricsPenalties.current.get(from) ?? 0) + 200
+      lyricsPenalties.current.set(from, pen)
+      emit({ t: 'lq-wrong', id: from, penalty: pen })
+    }
+  }, [emit, apply])
+
   /** Host: load the chosen quiz's songs, shuffle the questions and play the first. */
   const begin = useCallback(async () => {
     const q = quiz.current
@@ -192,20 +296,47 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
       setView((v) => ({ ...v, phase: 'lobby', error: j.error ?? 'Kuis tidak bisa dimuat.' }))
       return setStep('kuis')
     }
-    // artist quizzes are always "guess the title": every song is by the same singer
     const mode: Mode = q.key.startsWith('artist:') || !enoughArtists(j.tracks) ? 'title' : s.mode
     const count = s.count === 'all' ? j.tracks.length : Math.min(s.count, j.tracks.length)
     for (const p of players.current.values()) p.score = 0
-    questions.current = makeQuestions(j.tracks, mode, Math.random, LEVELS[s.level].sameArtist, count)
-    setView((v) => ({ ...v, error: null }))
-    ask(0)
-  }, [emit, ask, setStep])
+
+    if (s.lyrics) {
+      // lyrics mode: fetch lyrics for each song
+      const qs = makeQuestions(j.tracks, 'title', Math.random, LEVELS[s.level].sameArtist, count)
+      const withLyrics: LyricsQ[] = []
+      const results = await Promise.all(
+        qs.map(async (qq) => {
+          try {
+            const r = await fetch(`/api/lyrics?${new URLSearchParams({ title: qq.answer.title, artist: qq.answer.artist })}`)
+            const lj = await r.json()
+            if (lj.found && lj.lines?.length >= 4) return { ...qq, lines: lj.lines as string[] }
+          } catch {}
+          return null
+        }),
+      )
+      for (const r of results) if (r) withLyrics.push(r)
+      if (withLyrics.length < 4) {
+        setView((v) => ({ ...v, phase: 'lobby', error: 'Tidak cukup lagu yang punya lirik.' }))
+        return setStep('kuis')
+      }
+      lyricsQuestions.current = withLyrics
+      questions.current = withLyrics
+      setView((v) => ({ ...v, error: null }))
+      askLyrics(0)
+    } else {
+      questions.current = makeQuestions(j.tracks, mode, Math.random, LEVELS[s.level].sameArtist, count)
+      setView((v) => ({ ...v, error: null }))
+      ask(0)
+    }
+  }, [emit, ask, askLyrics, setStep])
 
   const nextSong = useCallback(() => {
     const i = Math.floor(current.current) + 1
-    if (i < questions.current.length) ask(i)
-    else emit({ t: 'end', players: [...players.current.values()] })
-  }, [ask, emit])
+    if (i < questions.current.length) {
+      if (settings.current.lyrics) askLyrics(i)
+      else ask(i)
+    } else emit({ t: 'end', players: [...players.current.values()] })
+  }, [ask, askLyrics, emit])
 
   /** Host: after the podium, back to the lobby to play again (same people, maybe another quiz). */
   const backToLobby = useCallback(() => {
@@ -265,6 +396,8 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
               players.current.set(conn.peer, { id: conn.peer, name: m.name.slice(0, 18) || 'Tamu', avatar: m.avatar, score: 0 })
               lobby()
             } else if (m.t === 'answer') onAnswer(conn.peer, m)
+            else if (m.t === 'lq-buzz') onLyricsBuzz(conn.peer, m.i)
+            else if (m.t === 'lq-answer') onLyricsAnswer(conn.peer, m.i, m.id)
             else if (m.t === 'profile') {
               const p = players.current.get(conn.peer)
               if (!p) return
@@ -361,7 +494,25 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     [role, lobby],
   )
 
-  return { view, roomCode, offline, myId, answer, begin, nextSong, setStep, configure, chooseQuiz, backToLobby, rename }
+  /** My buzz (raise hand) for lyrics question `i`. */
+  const lyricsBuzz = useCallback(
+    (i: number) => {
+      if (role === 'host') onLyricsBuzz(HOST, i)
+      else hostConn.current?.send({ t: 'lq-buzz', i } satisfies GuestMsg)
+    },
+    [role, onLyricsBuzz],
+  )
+
+  /** My answer after buzzing in lyrics mode. */
+  const lyricsAnswer = useCallback(
+    (i: number, id: number) => {
+      if (role === 'host') onLyricsAnswer(HOST, i, id)
+      else hostConn.current?.send({ t: 'lq-answer', i, id } satisfies GuestMsg)
+    },
+    [role, onLyricsAnswer],
+  )
+
+  return { view, roomCode, offline, myId, answer, begin, nextSong, setStep, configure, chooseQuiz, backToLobby, rename, lyricsBuzz, lyricsAnswer }
 }
 
 /** One song in the room: the preview plays, the clock runs, pick a choice. */
@@ -487,6 +638,122 @@ function RoomQuestion({ q, settings, answered, players, onAnswer }: { q: PublicQ
         ))}
       </div>
       {picked !== undefined && <p className="note center-text">{waiting ? `Menunggu ${waiting} pemain lagi…` : 'Semua sudah menjawab!'}</p>}
+    </section>
+  )
+}
+
+const LINE_INTERVAL = 2.5
+
+/** Lyrics round in a room: lyrics appear line by line, players buzz to answer. */
+function RoomLyricsQuestion({ q, myId, buzzer, buzzerName, onBuzz, onAnswer }: {
+  q: LyricsPublicQuestion
+  myId: string
+  buzzer: string | null
+  buzzerName: string | null
+  onBuzz: () => void
+  onAnswer: (id: number) => void
+}) {
+  const [revealed, setRevealed] = useState(1)
+  const [started, setStarted] = useState(false)
+  const [myWrong, setMyWrong] = useState<Set<number>>(new Set())
+  const [myPenalty, setMyPenalty] = useState(0)
+  const audio = useRef<HTMLAudioElement | null>(null)
+
+  // play audio + reveal lines
+  useEffect(() => {
+    setRevealed(1)
+    setMyWrong(new Set())
+    setMyPenalty(0)
+    const a = new Audio(q.preview)
+    audio.current = a
+    a.addEventListener('playing', () => setStarted(true))
+    a.play().catch(() => setStarted(false))
+    let lineCount = 1
+    const iv = window.setInterval(() => {
+      lineCount++
+      setRevealed(lineCount)
+      if (lineCount >= q.lines.length) clearInterval(iv)
+    }, LINE_INTERVAL * 1000)
+    return () => {
+      clearInterval(iv)
+      a.pause()
+    }
+  }, [q])
+
+  // when I get a wrong result back, track it locally
+  useEffect(() => {
+    // buzzer released means someone (maybe me) got it wrong
+    // the view.buzzer going null after being myId means I was wrong
+  }, [buzzer])
+
+  const iHaveBuzz = buzzer === myId
+  const someoneElseBuzzing = buzzer !== null && buzzer !== myId
+  const tryAnswer = (id: number) => {
+    if (!iHaveBuzz || myWrong.has(id)) return
+    onAnswer(id)
+    // optimistically mark as tried; if wrong, lq-wrong comes back
+    setMyWrong((w) => new Set(w).add(id))
+    setMyPenalty((p) => p + 200)
+  }
+
+  return (
+    <section className="quiz lyrics-quiz">
+      <div className="room-bar">
+        <span>Lagu {q.i + 1}/{q.total}</span>
+        <span>Tebak Lirik</span>
+        <span>Baris {Math.min(revealed, q.lines.length)}/{q.lines.length}</span>
+      </div>
+      <div className="timebar" aria-hidden>
+        <span style={{ transform: `scaleX(${Math.min(1, revealed / q.lines.length)})`, background: 'linear-gradient(90deg, #3fd6c6, #8b8cff)' }} />
+      </div>
+      <div className="stage lyrics-stage">
+        <div className="lyrics-snippet">
+          {q.lines.slice(0, revealed).map((line, k) => (
+            <p key={k} className={k === revealed - 1 ? 'lyrics-new' : ''}>{line}</p>
+          ))}
+        </div>
+        <Equalizer on={started} />
+      </div>
+
+      {!started && (
+        <button className="ghost small center-self" onClick={() => audio.current?.play()}>
+          <Volume2 size={14} /> Putar lagunya
+        </button>
+      )}
+
+      {/* buzzer area */}
+      <div className="buzzer-area">
+        {someoneElseBuzzing && <p className="buzz-status"><Hand size={16} /> {buzzerName ?? 'Seseorang'} sedang menjawab...</p>}
+        {iHaveBuzz && <p className="buzz-status you"><Hand size={16} /> Giliranmu! Pilih jawaban</p>}
+        {!buzzer && (
+          <button className="primary buzz-btn" onClick={onBuzz}>
+            <Hand size={18} /> Angkat Tangan
+          </button>
+        )}
+      </div>
+
+      {myPenalty > 0 && <p className="penalty-tag center-text">Penalti: -{myPenalty}</p>}
+
+      <div className="options">
+        {q.options.map((o, k) => {
+          const isMyWrong = myWrong.has(o.id)
+          return (
+            <button
+              key={o.id}
+              className={`option c${k}${isMyWrong ? ' wrong disabled' : !iHaveBuzz ? ' locked' : ''}`}
+              disabled={!iHaveBuzz || isMyWrong}
+              onClick={() => tryAnswer(o.id)}
+            >
+              <kbd>{'ABCD'[k]}</kbd>
+              <span>
+                <b>{o.title}</b>
+                <small>{o.artist}</small>
+              </span>
+              {isMyWrong && <X size={20} />}
+            </button>
+          )
+        })}
+      </div>
     </section>
   )
 }
@@ -766,7 +1033,7 @@ export function Party(props: PartyProps) {
 }
 
 function Room({ role, code, initial, profile, onProfile, onLeave, onRetry }: PartyProps & { onRetry: () => void }) {
-  const { view, roomCode, offline, myId, answer, begin, nextSong, setStep, configure, chooseQuiz, backToLobby, rename } = useRoom(role, code, profile, initial)
+  const { view, roomCode, offline, myId, answer, begin, nextSong, setStep, configure, chooseQuiz, backToLobby, rename, lyricsBuzz, lyricsAnswer } = useRoom(role, code, profile, initial)
   const [copied, setCopied] = useState(false)
   const link = `${location.origin}/?room=${roomCode}`
   const me = myId.current
@@ -841,6 +1108,7 @@ function Room({ role, code, initial, profile, onProfile, onLeave, onRetry }: Par
           </ol>
         )}
         {(view.phase === 'question' || view.phase === 'reveal') && view.q && <SongDots total={view.q.total} at={view.q.i} live={view.phase === 'question'} history={view.history} me={me} />}
+        {(view.phase === 'lyrics-q' || (view.phase === 'reveal' && view.lq)) && view.lq && <SongDots total={view.lq.total} at={view.lq.i} live={view.phase === 'lyrics-q'} history={view.history} me={me} />}
         {offline && <span className="room-offline">Menyambung ulang…</span>}
         <button className="room-code" type="button" onClick={() => { navigator.clipboard.writeText(roomCode); const el = document.querySelector('.room-code') as HTMLElement; el?.classList.add('copied'); setTimeout(() => el?.classList.remove('copied'), 1200) }}>
           Room <b>{roomCode}</b> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -864,7 +1132,16 @@ function Room({ role, code, initial, profile, onProfile, onLeave, onRetry }: Par
             <div className="lobby-main">
               {view.error && <p className="note error">{view.error}</p>}
               {host && view.step === 'atur' && (
-                <SettingsPanel settings={{ mode: s.mode, level: s.level, count: s.count }} setMode={(mode) => configure({ mode })} setLevel={(level) => configure({ level })} setCount={(count) => configure({ count })} />
+                <>
+                  <SettingsPanel settings={{ mode: s.mode, level: s.level, count: s.count }} setMode={(mode) => configure({ mode })} setLevel={(level) => configure({ level })} setCount={(count) => configure({ count })} />
+                  <div className="setting lyrics-toggle">
+                    <label className={`toggle-row${s.lyrics ? ' active' : ''}`}>
+                      <FileText size={18} />
+                      <span><b>Mode Tebak Lirik</b><small>Lirik muncul bertahap, angkat tangan untuk menjawab</small></span>
+                      <input type="checkbox" checked={!!s.lyrics} onChange={(e) => configure({ lyrics: e.target.checked })} />
+                    </label>
+                  </div>
+                </>
               )}
               {host && view.step === 'kuis' && (
                 <div className="lobby-picker">
@@ -908,11 +1185,23 @@ function Room({ role, code, initial, profile, onProfile, onLeave, onRetry }: Par
         </>
       )}
 
-      {(view.phase === 'question' || view.phase === 'reveal') && (
+      {(view.phase === 'question' || view.phase === 'reveal' || view.phase === 'lyrics-q') && (
         <div className="play-grid">
           <Board players={view.players} answered={view.answered} results={view.phase === 'reveal' ? view.reveal?.results : undefined} history={view.history} me={me} />
 
           {view.phase === 'question' && view.q && s && <RoomQuestion key={view.q.i} q={view.q} settings={s} answered={view.answered} players={view.players} onAnswer={(id, seconds) => answer(view.q!.i, id, seconds)} />}
+
+          {view.phase === 'lyrics-q' && view.lq && (
+            <RoomLyricsQuestion
+              key={view.lq.i}
+              q={view.lq}
+              myId={me}
+              buzzer={view.buzzer}
+              buzzerName={view.buzzerName}
+              onBuzz={() => lyricsBuzz(view.lq!.i)}
+              onAnswer={(id) => lyricsAnswer(view.lq!.i, id)}
+            />
+          )}
 
           {view.phase === 'reveal' && view.reveal && (
             <div className="reveal-room">

@@ -1,23 +1,23 @@
 // Fetches plain-text lyrics for a song, for the "Tebak Lirik" quiz mode.
 //   /api/lyrics?title=<title>&artist=<artist>
+// Returns an array of lyric lines (8-12) for gradual reveal during the quiz.
 // Tries LRCLIB first (clean, synced lyrics), then lyrics.ovh as fallback.
-import { norm } from './_match.js'
 
 const json = (body, cache = 'no-store', status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': cache } })
 
-/** Pick a snippet of 4 consecutive non-empty lines from roughly the middle of the lyrics. */
-function snippet(text) {
+/** Pick 8-12 consecutive non-empty lines from roughly the middle of the lyrics. */
+function pickLines(text) {
   const lines = text
     .split('\n')
     .map((l) => l.replace(/^\[.*?\]\s*/, '').trim())
     .filter((l) => l && !l.startsWith('['))
-  if (lines.length < 4) return lines.join('\n')
-  // skip first ~25% (usually intro/first verse, too recognizable) and pick from the middle
-  const start = Math.max(0, Math.floor(lines.length * 0.25))
-  const end = Math.max(start + 4, lines.length - 2)
-  const i = start + Math.floor(Math.random() * Math.max(1, end - start - 3))
-  return lines.slice(i, i + 4).join('\n')
+  if (lines.length < 4) return lines
+  const want = Math.min(lines.length, 8 + Math.floor(Math.random() * 5))
+  const start = Math.max(0, Math.floor(lines.length * 0.2))
+  const end = Math.max(start + want, lines.length - 2)
+  const i = start + Math.floor(Math.random() * Math.max(1, end - start - want))
+  return lines.slice(i, i + want)
 }
 
 async function fromLrclib(title, artist) {
@@ -48,7 +48,9 @@ export async function GET(request) {
     let text = await fromLrclib(title, artist)
     if (!text) text = await fromLyricsOvh(title, artist)
     if (!text) return json({ found: false }, 's-maxage=3600')
-    return json({ found: true, snippet: snippet(text) }, 's-maxage=3600')
+    const lines = pickLines(text)
+    if (lines.length < 4) return json({ found: false }, 's-maxage=3600')
+    return json({ found: true, lines }, 's-maxage=3600')
   } catch {
     return json({ found: false }, 'no-store')
   }

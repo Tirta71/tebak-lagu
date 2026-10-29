@@ -1012,6 +1012,86 @@ h2 {
   text-decoration: underline;
 }
 
+/* Lyrics quiz */
+.lyrics-quiz .lyrics-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-height: 180px;
+}
+
+.lyrics-snippet p {
+  animation: lyricFadeIn 0.4s ease;
+}
+
+@keyframes lyricFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.penalty-tag {
+  color: var(--bad);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.option.wrong.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.float-points.penalty {
+  color: var(--bad);
+}
+
+/* Room buzzer */
+.buzzer-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.buzz-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 32px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #fff;
+  background: linear-gradient(135deg, #ff6b9d, #c471f5);
+  box-shadow: 0 4px 20px rgba(196, 113, 245, 0.4);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.buzz-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 28px rgba(196, 113, 245, 0.55);
+}
+
+.buzz-btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.buzz-status {
+  font-size: 0.9rem;
+  color: var(--ink-muted);
+  text-align: center;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--ink-muted);
+}
+
 .eq {
   display: flex;
   height: 60px;
