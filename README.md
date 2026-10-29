@@ -14,8 +14,6 @@ dan lirik), dan skor terbaik per kuis yang tersimpan di browser.
   bantuan). Makin sulit, poinnya makin besar (×1 sampai ×2). Atur di `src/levels.ts`.
 - **Seru-seruan:** hitung mundur 3-2-1, efek suara (bisa dimatikan), combo (×1,5 setelah 3 benar
   beruntun, ×2 setelah 5), bantuan 50:50 dan +5 detik, confetti untuk skor bagus.
-- **Tantangan Harian:** 10 lagu yang sama untuk semua orang hari ini (level Normal), dengan hasil
-  berbentuk kotak 🟩🟥 yang bisa dibagikan.
 - **Profil:** avatar dan nama panggilan, tersimpan di browser.
 - **Main bareng teman:** buat room (dapat kode 5 huruf dan link undangan) atau gabung pakai kode.
   Lobi berisi daftar pemain (maks 8) dan tiga langkah: Atur → Pilih kuis → Main. Semua mendengar

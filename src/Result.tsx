@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Check, ExternalLink, FileText, Flame, RotateCcw, Share2, Trophy, X } from 'lucide-react'
+import { Check, ExternalLink, FileText, Flame, RotateCcw, Trophy, X } from 'lucide-react'
 import { Bit } from './Bit'
 import { Confetti } from './Confetti'
 import { LyricsPanel } from './LyricsPanel'
 import { LEVELS } from './levels'
-import { saveBest, saveDaily, type Profile } from './local'
+import { saveBest, type Profile } from './local'
 import type { Answer, Mode, QuizSource } from './types'
 
 /** The score, a best-score flag, and the ten songs: what they were, what you picked, lyrics on tap. */
@@ -14,7 +14,6 @@ export function Result({ source, name, answers, mode, profile, onAgain, onHome }
   const [best, setBest] = useState(false)
   const [open, setOpen] = useState<number | null>(null)
 
-  const [shared, setShared] = useState(false)
   const bestCombo = Math.max(0, ...answers.map((a) => a.combo))
 
   useEffect(() => {
@@ -23,22 +22,7 @@ export function Result({ source, name, answers, mode, profile, onAgain, onHome }
     // a longer quiz scores more, so each length keeps its own best too
     const key = `${source.key}:${mode}:${level}:${source.count ?? 10}`
     setBest(saveBest({ key, name: `${name}${mode === 'artist' ? ' · penyanyi' : mode === 'both' ? ' · acak' : ''} · ${LEVELS[level].label} · ${source.count === 'all' ? 'semua' : (source.count ?? 10)} lagu`, score, at: Date.now() }))
-    if (source.daily) saveDaily({ day: source.daily, score, marks: answers.map((a) => a.points > 0) })
-  }, [source.key, source.daily, name, score, mode, answers])
-
-  // the daily challenge's result as text: a row of squares, like the word games do
-  const share = async () => {
-    const text = `Tebak Lagu · Tantangan ${source.daily}\n${answers.map((a) => (a.points ? '🟩' : '🟥')).join('')}\n${score} poin · ${right}/${answers.length} benar\n${location.origin}`
-    try {
-      if (navigator.share) await navigator.share({ text })
-      else {
-        await navigator.clipboard.writeText(text)
-        setShared(true)
-      }
-    } catch {
-      /* closed the share sheet */
-    }
-  }
+  }, [source.key, name, score, mode, answers])
 
   const fast = answers.filter((a) => a.points).sort((a, b) => a.seconds - b.seconds)[0]
   const avg = right ? answers.filter((a) => a.points).reduce((t, a) => t + a.seconds, 0) / right : 0
@@ -76,13 +60,6 @@ export function Result({ source, name, answers, mode, profile, onAgain, onHome }
             </dd>
           </div>
         </dl>
-        {source.daily && (
-          <p className="marks" aria-label={`${right} dari ${answers.length} benar`}>
-            {answers.map((a, k) => (
-              <i key={k} className={a.points ? 'right' : 'wrong'} />
-            ))}
-          </p>
-        )}
         {best && (
           <p className="best-flag">
             <Trophy size={15} /> Skor terbaik baru untuk kuis ini!
@@ -92,11 +69,6 @@ export function Result({ source, name, answers, mode, profile, onAgain, onHome }
           <button className="primary" onClick={onAgain}>
             <RotateCcw size={16} /> Main lagi
           </button>
-          {source.daily && (
-            <button className="ghost" onClick={share}>
-              <Share2 size={15} /> {shared ? 'Tersalin!' : 'Bagikan'}
-            </button>
-          )}
           <button className="ghost" onClick={onHome}>
             Kuis lain
           </button>

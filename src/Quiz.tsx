@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRight, Check, Flame, Plus, Scissors, Volume2, VolumeX, X } from 'lucide-react'
 import { norm } from '../api/_match.js'
 import { Bit, Equalizer } from './Bit'
-import { seeded, shuffle, type Rng } from './random'
+import { shuffle, type Rng } from './random'
 import { isMuted, setMuted, sfx } from './sfx'
 import { LEVELS, type LevelRules } from './levels'
 import type { Answer, Mode, Question, QuizSource, Song } from './types'
@@ -15,8 +15,7 @@ const PREVIEW = 30
 
 /**
  * Ten songs from the pool, each with three others to choose from: other titles, or (guessing the
- * singer) songs by other artists. In the mixed mode each song is one or the other at random. A
- * seeded random source gives everyone the same quiz.
+ * singer) songs by other artists. In the mixed mode each song is one or the other at random.
  */
 export function makeQuestions(pool: Song[], mode: Mode, rng: Rng, sameArtist: boolean, count: number): Question[] {
   const singer = (s: Song) => norm(s.artist.split(',')[0])
@@ -78,7 +77,7 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
         setMode(m)
         // "all" plays every song that has a preview
         const count = source.count === 'all' ? j.tracks.length : (source.count ?? 10)
-        setQuestions(makeQuestions(j.tracks, m, source.daily ? seeded(`${source.daily}:${source.key}`) : Math.random, rules.sameArtist, count))
+        setQuestions(makeQuestions(j.tracks, m, Math.random, rules.sameArtist, count))
       })
     return () => {
       alive = false

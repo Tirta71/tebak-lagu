@@ -1,10 +1,9 @@
-import { CalendarDays, Trophy, User, Users, Zap } from 'lucide-react'
+import { Trophy, User, Users, Zap } from 'lucide-react'
 import { Bit } from './Bit'
-import { AVATARS, readBests, readDaily, saveProfile, type Profile } from './local'
+import { AVATARS, readBests, saveProfile, type Profile } from './local'
 import { LEVELS } from './levels'
 import { QuizPicker } from './QuizPicker'
 import { SettingsPanel, useGameSettings } from './Settings'
-import { today } from './random'
 import type { QuizSource } from './types'
 
 function ProfileCard({ profile, onChange }: { profile: Profile; onChange: (p: Profile) => void }) {
@@ -34,8 +33,6 @@ export function Home({ profile, onProfile, onStart: start, onParty }: { profile:
   const { mode, level, count } = settings
   // artist quizzes are always "guess the title": every song is by the same singer
   const onStart = (q: QuizSource) => start({ ...q, level, count, mode: q.key.startsWith('artist:') ? 'title' : mode })
-  const day = today()
-  const daily = readDaily(day)
   const bests = readBests().sort((a, b) => b.score - a.score).slice(0, 5)
 
   const scrollToQuizzes = () => document.getElementById('kuis')?.scrollIntoView({ behavior: 'smooth' })
@@ -71,19 +68,6 @@ export function Home({ profile, onProfile, onStart: start, onParty }: { profile:
           <Bit size={190} mood="listen" />
         </div>
       </section>
-
-      {/* the daily challenge: the same ten songs for everyone today */}
-      <button className="daily" onClick={() => start({ key: 'daily', name: 'Tantangan Harian', query: 'kind=genre&id=0', mode: 'title', level: 'normal', count: 10, daily: day })}>
-        <span className="daily-icon" aria-hidden>
-          <CalendarDays size={24} />
-        </span>
-        <span className="daily-text">
-          <small>Tantangan Harian · {new Intl.DateTimeFormat('id', { day: 'numeric', month: 'long' }).format(new Date())}</small>
-          <b>10 lagu yang sama untuk semua orang hari ini</b>
-          <span>{daily ? `Skormu hari ini: ${daily.score} · main lagi untuk memperbaiki` : 'Lagu-lagu terpopuler di dunia. Bandingkan skormu dengan teman.'}</span>
-        </span>
-        <em>{daily ? 'Main lagi' : 'Main'}</em>
-      </button>
 
       <div className="two">
         <ProfileCard profile={profile} onChange={onProfile} />
