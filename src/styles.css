@@ -220,12 +220,43 @@ h2 {
 
 /* ---------- home ---------- */
 
+/* ---------- hero, with Bit ---------- */
+
 .hero {
-  padding: 18px 0 4px;
+  position: relative;
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background:
+    radial-gradient(70% 90% at 85% 40%, rgb(157 140 255 / 0.28), transparent 70%),
+    radial-gradient(50% 70% at 0% 100%, rgb(255 138 180 / 0.16), transparent 70%),
+    var(--surface);
+  padding: 28px 24px;
+}
+
+@media (min-width: 720px) {
+  .hero {
+    grid-template-columns: 1fr auto;
+    padding: 36px 40px;
+  }
+}
+
+.pill {
+  display: inline-block;
+  margin-bottom: 14px;
+  border-radius: 999px;
+  background: rgb(157 140 255 / 0.16);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #c4bcff;
 }
 
 .hero h1 {
-  font-size: clamp(32px, 7vw, 54px);
+  font-size: clamp(32px, 6.4vw, 54px);
   font-weight: 800;
   letter-spacing: -0.04em;
   line-height: 1.05;
@@ -239,11 +270,91 @@ h2 {
 }
 
 .hero p {
-  max-width: 520px;
+  max-width: 480px;
   margin-top: 12px;
   font-size: 15px;
   line-height: 1.6;
   color: var(--ink-muted);
+}
+
+.hero-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.hero-facts span {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgb(13 16 32 / 0.5);
+  padding: 7px 12px;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+.hero-facts b {
+  margin-right: 4px;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.hero-bit {
+  justify-self: center;
+}
+
+/* Bit bobs, blinks, and its antenna glows */
+.bit {
+  overflow: visible;
+  animation: bob 3.2s ease-in-out infinite;
+}
+
+.bit-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: blink 4.5s infinite;
+}
+
+.bit-tip {
+  animation: glow 1.6s ease-in-out infinite alternate;
+}
+
+.bit-happy {
+  animation: hop 0.6s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+.bit-sad {
+  animation: none;
+  transform: rotate(-6deg);
+}
+
+@keyframes bob {
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+
+@keyframes glow {
+  to {
+    fill: #ff8ab4;
+  }
+}
+
+@keyframes hop {
+  from {
+    transform: translateY(14px) scale(0.9);
+  }
 }
 
 .two {
@@ -371,70 +482,169 @@ h2 {
   flex: 1;
 }
 
+/* ---------- shelves: rows of quiz cards that scroll sideways ---------- */
+
 .shelf {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
-.tiles {
+.shelf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.shelf-arrows {
+  display: none;
+  gap: 6px;
+}
+
+@media (hover: hover) {
+  .shelf-arrows {
+    display: flex;
+  }
+}
+
+.shelf-arrows button {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-  gap: 14px;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface);
+  transition: background-color 0.15s;
 }
 
+.shelf-arrows button:hover {
+  background: var(--surface-2);
+}
+
+.shelf-row {
+  display: grid;
+  grid-auto-columns: 168px;
+  grid-auto-flow: column;
+  gap: 14px;
+  overflow-x: auto;
+  margin: 0 -16px;
+  padding: 4px 16px 10px;
+  scroll-padding: 0 16px;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.shelf-row::-webkit-scrollbar {
+  display: none;
+}
+
+/* a card: the picture fills it, the name sits on a shade at the bottom */
 .tile {
-  display: grid;
-  justify-items: start;
-  gap: 2px;
-  min-width: 0;
-  text-align: left;
-}
-
-.tile img,
-.tile-art {
-  width: 100%;
+  position: relative;
+  display: block;
+  overflow: hidden;
   aspect-ratio: 1;
-  margin-bottom: 6px;
-  border-radius: 16px;
-  object-fit: cover;
-  box-shadow: 0 10px 22px rgb(0 0 0 / 0.3);
+  border-radius: 20px;
+  background: var(--surface-2);
+  text-align: left;
+  box-shadow: 0 12px 26px rgb(0 0 0 / 0.3);
+  scroll-snap-align: start;
   transition: transform 0.2s;
 }
 
-.tile:hover img,
-.tile:hover .tile-art {
-  transform: translateY(-3px) scale(1.02);
+.tile:hover {
+  transform: translateY(-4px);
 }
 
-.tile.round img {
-  border-radius: 50%;
+.tile img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s;
 }
 
-.tile-art {
+.tile:hover img {
+  transform: scale(1.06);
+}
+
+.tile-text {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: grid;
-  place-items: center;
-  padding: 10px;
-  font-size: 20px;
-  font-weight: 800;
-  text-align: center;
-  color: #fff;
+  padding: 26px 14px 12px;
+  background: linear-gradient(transparent, rgb(8 10 22 / 0.85));
 }
 
 .tile b,
 .tile small {
   overflow: hidden;
-  max-width: 100%;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .tile b {
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 800;
 }
 
 .tile small {
   font-size: 12px;
+  color: rgb(238 240 255 / 0.75);
+}
+
+/* artists: round pictures with the name underneath */
+.tile.round {
+  overflow: visible;
+  aspect-ratio: auto;
+  background: none;
+  box-shadow: none;
+}
+
+.tile.round img {
+  position: static;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  box-shadow: 0 12px 26px rgb(0 0 0 / 0.3);
+}
+
+.initial {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 1;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 54px;
+  font-weight: 800;
+  color: #fff;
+  box-shadow: 0 12px 26px rgb(0 0 0 / 0.3);
+}
+
+.tile.round .tile-text {
+  position: static;
+  padding: 10px 2px 0;
+  background: none;
+  text-align: center;
+}
+
+.tile.round small {
   color: var(--ink-muted);
+}
+
+.skeleton {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%) 0 0 / 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
 }
 
 .search,
@@ -530,53 +740,120 @@ h2 {
   background: var(--bad);
 }
 
-/* the clock ring; when answered, the song's cover shows inside it */
-.timer {
+/* ---------- the quiz stage ---------- */
+
+.timebar {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.timebar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #6d6ef7, #9d8cff);
+  transform-origin: left;
+}
+
+.timebar.hurry span {
+  background: linear-gradient(90deg, #ff5f6d, #ff8ab4);
+}
+
+.stage {
   position: relative;
-  display: grid;
-  width: 150px;
-  height: 150px;
-  place-items: center;
-  margin: 4px auto 0;
+  display: flex;
+  min-height: 170px;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
 }
 
-.timer svg {
-  position: absolute;
-  inset: 0;
-  transform: rotate(-90deg);
+.eq {
+  display: flex;
+  height: 60px;
+  align-items: flex-end;
+  gap: 5px;
 }
 
-.timer circle {
-  fill: none;
-  stroke-width: 8;
+.eq i {
+  width: 8px;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(#ff8ab4, #9d8cff);
 }
 
-.timer-track {
-  stroke: var(--surface-2);
+.eq.on i {
+  animation: eq 0.7s ease-in-out infinite alternate;
 }
 
-.timer-run {
-  stroke: var(--accent);
-  stroke-dasharray: 326.7;
-  stroke-linecap: round;
+@keyframes eq {
+  from {
+    height: 10px;
+  }
+  to {
+    height: 58px;
+  }
 }
 
-.timer.done .timer-run {
-  stroke: var(--good);
-}
-
-.timer-num {
-  font-size: 44px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.timer img {
-  width: 118px;
-  height: 118px;
-  border-radius: 50%;
-  object-fit: cover;
+.now-playing {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
   animation: pop 0.4s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+
+.now-playing img {
+  width: 110px;
+  height: 110px;
+  flex: none;
+  border-radius: 16px;
+  box-shadow: 0 16px 34px rgb(0 0 0 / 0.45);
+}
+
+.now-playing span {
+  display: grid;
+  min-width: 0;
+}
+
+.now-playing b {
+  overflow: hidden;
+  font-size: 19px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.now-playing small {
+  font-size: 13.5px;
+  color: var(--ink-muted);
+}
+
+.float-points {
+  position: absolute;
+  top: 0;
+  right: 8%;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--good);
+  animation: float-up 1.2s ease-out both;
+}
+
+@keyframes float-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.8);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(0) scale(1.1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-24px);
+  }
 }
 
 .ask {
@@ -585,6 +862,7 @@ h2 {
   text-align: center;
 }
 
+/* four answers, each its own colour, A to D */
 .options {
   display: grid;
   gap: 10px;
@@ -597,35 +875,53 @@ h2 {
 }
 
 .option {
+  --c: #6d6ef7;
   display: flex;
-  min-height: 64px;
+  min-height: 72px;
   align-items: center;
   gap: 12px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface);
+  border: 2px solid transparent;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--c) 22%, var(--surface));
   padding: 10px 14px;
   text-align: left;
-  transition: border-color 0.15s, background-color 0.15s, transform 0.15s, opacity 0.2s;
+  box-shadow: inset 0 -4px 0 color-mix(in srgb, var(--c) 45%, transparent);
+  transition: transform 0.15s, background-color 0.15s, border-color 0.15s, opacity 0.2s;
+}
+
+.option.c1 {
+  --c: #ff6fa5;
+}
+
+.option.c2 {
+  --c: #2fc4b2;
+}
+
+.option.c3 {
+  --c: #f5a524;
 }
 
 .option:not(:disabled):hover {
-  border-color: var(--accent);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--c) 34%, var(--surface));
+  transform: translateY(-2px);
+}
+
+.option:not(:disabled):active {
+  transform: translateY(1px);
 }
 
 .option kbd {
   display: grid;
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   flex: none;
   place-items: center;
-  border-radius: 8px;
-  background: var(--surface-2);
+  border-radius: 10px;
+  background: var(--c);
   font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink-muted);
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
 }
 
 .option span {
@@ -642,7 +938,7 @@ h2 {
 }
 
 .option b {
-  font-size: 14.5px;
+  font-size: 15px;
 }
 
 .option small {
@@ -652,18 +948,31 @@ h2 {
 
 .option.right {
   border-color: var(--good);
-  background: rgb(52 224 161 / 0.12);
+  background: rgb(52 224 161 / 0.16);
   color: var(--good);
+  animation: pop 0.35s ease both;
 }
 
 .option.wrong {
   border-color: var(--bad);
-  background: rgb(255 122 144 / 0.12);
+  background: rgb(255 122 144 / 0.14);
   color: var(--bad);
+  animation: shake 0.4s ease both;
 }
 
 .option.dim {
-  opacity: 0.45;
+  opacity: 0.4;
+}
+
+@keyframes shake {
+  20%,
+  60% {
+    transform: translateX(-6px);
+  }
+  40%,
+  80% {
+    transform: translateX(6px);
+  }
 }
 
 .quiz .primary {
@@ -698,10 +1007,6 @@ h2 {
   margin: 0 auto;
 }
 
-.big-avatar {
-  font-size: 46px;
-}
-
 .final {
   font-size: 64px;
   font-weight: 800;
@@ -711,6 +1016,42 @@ h2 {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+
+.rank {
+  border-radius: 999px;
+  background: rgb(157 140 255 / 0.16);
+  padding: 5px 14px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #c4bcff;
+}
+
+.result-stats {
+  display: grid;
+  width: 100%;
+  max-width: 380px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.result-stats div {
+  border-radius: 14px;
+  background: var(--surface-2);
+  padding: 10px 6px;
+}
+
+.result-stats dt {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.result-stats dd {
+  font-size: 17px;
+  font-weight: 800;
 }
 
 .best-flag {

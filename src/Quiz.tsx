@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRight, Check, Volume2, X } from 'lucide-react'
+import { Bit, Equalizer } from './Bit'
 import { norm } from '../api/_match.js'
 import type { Answer, Question, QuizSource, Song } from './types'
 
@@ -168,17 +169,28 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
         })}
       </div>
 
-      {/* the clock: a ring that runs down over 15 seconds */}
-      <div className={`timer${answered ? ' done' : ''}`}>
-        <svg viewBox="0 0 120 120" aria-hidden>
-          <circle cx="60" cy="60" r="52" className="timer-track" />
-          <circle cx="60" cy="60" r="52" className="timer-run" style={{ strokeDashoffset: `${326.7 * (1 - (answered ? 0 : left / SECONDS))}` }} />
-        </svg>
+      {/* the clock: a thick bar that runs down over 15 seconds, red in the last five */}
+      <div className={`timebar${left <= 5 && !answered ? ' hurry' : ''}`} aria-hidden>
+        <span style={{ transform: `scaleX(${answered ? 0 : left / SECONDS})` }} />
+      </div>
+
+      <div className="stage">
         {answered ? (
-          <img src={q.answer.cover ?? ''} alt="" />
+          <div className="now-playing">
+            {q.answer.cover && <img src={q.answer.cover} alt="" />}
+            <span>
+              <b>{q.answer.title}</b>
+              <small>{q.answer.artist}</small>
+            </span>
+          </div>
         ) : (
-          <span className="timer-num">{started ? Math.ceil(left) : <Volume2 size={28} />}</span>
+          <>
+            <Bit size={120} mood="listen" />
+            <Equalizer on={started} />
+          </>
         )}
+        {answered && <Bit size={86} mood={mine.points ? 'happy' : 'sad'} />}
+        {answered && mine.points > 0 && <span className="float-points">+{mine.points}</span>}
       </div>
       {!started && !answered && (
         <button className="ghost small center-self" onClick={() => audio.current?.play()}>
@@ -186,20 +198,22 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
         </button>
       )}
 
-      <p className="ask">{answered ? (mine.points ? `Benar! +${mine.points}` : mine.picked ? 'Kurang tepat' : 'Waktu habis') : 'Lagu apa ini?'}</p>
+      <p className="ask">
+        {answered ? (mine.points ? 'Benar!' : mine.picked ? 'Kurang tepat' : 'Waktu habis') : started ? `Lagu apa ini? · ${Math.ceil(left)}` : 'Lagu apa ini?'}
+      </p>
 
       <div className="options">
         {q.options.map((o, k) => {
           const state = !answered ? '' : o.id === q.answer.id ? 'right' : mine.picked?.id === o.id ? 'wrong' : 'dim'
           return (
-            <button key={o.id} className={`option ${state}`} disabled={answered} onClick={() => answer(o)}>
-              <kbd>{k + 1}</kbd>
+            <button key={o.id} className={`option c${k} ${state}`} disabled={answered} onClick={() => answer(o)}>
+              <kbd>{'ABCD'[k]}</kbd>
               <span>
                 <b>{o.title}</b>
                 <small>{o.artist}</small>
               </span>
-              {state === 'right' && <Check size={18} />}
-              {state === 'wrong' && <X size={18} />}
+              {state === 'right' && <Check size={20} />}
+              {state === 'wrong' && <X size={20} />}
             </button>
           )
         })}

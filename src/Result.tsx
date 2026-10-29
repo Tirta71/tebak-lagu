@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Check, ExternalLink, FileText, RotateCcw, Trophy, X } from 'lucide-react'
+import { Bit } from './Bit'
 import { LyricsPanel } from './LyricsPanel'
 import { saveBest, type Profile } from './local'
 import type { Answer, QuizSource } from './types'
@@ -16,18 +17,34 @@ export function Result({ source, name, answers, profile, onAgain, onHome }: { so
   }, [source.key, name, score])
 
   const fast = answers.filter((a) => a.points).sort((a, b) => a.seconds - b.seconds)[0]
+  const avg = right ? answers.filter((a) => a.points).reduce((t, a) => t + a.seconds, 0) / right : 0
+  // a title for how it went
+  const rank = right >= 9 ? 'Telinga emas' : right >= 7 ? 'Pendengar sejati' : right >= 4 ? 'Lumayan hafal' : right >= 1 ? 'Masih pemanasan' : 'Coba sekali lagi'
   return (
     <section className="result">
       <div className="panel center">
-        <span className="big-avatar" aria-hidden>
-          {profile.avatar}
-        </span>
-        <p className="muted">{profile.name || 'Kamu'} · {name}</p>
-        <h1 className="final">{score}</h1>
-        <p>
-          {right} dari {answers.length} benar
-          {fast ? ` · tercepat ${fast.seconds.toFixed(1)} detik` : ''}
+        <Bit size={120} mood={right >= 5 ? 'happy' : right ? 'listen' : 'sad'} />
+        <p className="muted">
+          <span aria-hidden>{profile.avatar}</span> {profile.name || 'Kamu'} · {name}
         </p>
+        <span className="rank">{rank}</span>
+        <h1 className="final">{score}</h1>
+        <dl className="result-stats">
+          <div>
+            <dt>Benar</dt>
+            <dd>
+              {right}/{answers.length}
+            </dd>
+          </div>
+          <div>
+            <dt>Tercepat</dt>
+            <dd>{fast ? `${fast.seconds.toFixed(1)} dtk` : '–'}</dd>
+          </div>
+          <div>
+            <dt>Rata-rata</dt>
+            <dd>{right ? `${avg.toFixed(1)} dtk` : '–'}</dd>
+          </div>
+        </dl>
         {best && (
           <p className="best-flag">
             <Trophy size={15} /> Skor terbaik baru untuk kuis ini!
