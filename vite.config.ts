@@ -6,8 +6,8 @@ function apiRoutes(): Plugin {
   return {
     name: 'api-routes',
     configureServer(server) {
-      const env = loadEnv(server.config.mode, server.config.root, 'MUSIXMATCH_')
-      for (const name of ['playlist', 'deezer', 'lyrics']) {
+      const env = loadEnv(server.config.mode, server.config.root, 'GENIUS_')
+      for (const name of ['playlist', 'deezer', 'genius']) {
         server.middlewares.use(`/api/${name}`, async (req, res) => {
           const { GET } = await server.ssrLoadModule(`/api/${name}.js`)
           // Connect strips the mount path, so only the query is left on the request

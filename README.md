@@ -9,8 +9,9 @@ terbaik tersimpan di browser.
   bawah kartu untuk ganti.
 - Audio: cuplikan 30 detik resmi dari Deezer (gratis, tanpa login, tanpa API key). Lagu yang tidak
   punya cuplikan di Deezer dilewati otomatis.
-- Setelah ronde selesai: **lirik** lagunya tampil di kartu jawaban, langsung dari API resmi
-  Musixmatch (lihat di bawah). Tanpa API key, yang muncul tautan ke liriknya di Musixmatch.
+- Setelah ronde selesai: **lirik** lagunya tampil di kartu jawaban lewat embed resmi Genius (lihat
+  di bawah). Tanpa token, atau kalau lagunya tidak ada di Genius, yang muncul tautan lirik ke
+  Spotify dan Genius.
 - Tebakan: kotak pencarian lagu dari Deezer. Judul dibandingkan longgar ("feat.", versi, aksen, dan
   tanda baca tidak dihitung).
 
@@ -19,17 +20,18 @@ dipanggil langsung dari browser:
 
 - `api/playlist.js`: membaca daftar lagu dari halaman embed playlist Spotify (100 lagu pertama).
 - `api/deezer.js`: mencari cuplikan lagu dan saran tebakan.
-- `api/lyrics.js`: mengambil lirik dari Musixmatch (butuh API key).
+- `api/genius.js`: mencari lagu di Genius untuk embed liriknya (butuh access token gratis).
 
-## Lirik (Musixmatch)
+## Lirik (Genius)
 
-1. Daftar di https://developer.musixmatch.com dan ambil API key gratis.
-2. Salin `.env.example` menjadi `.env.local` dan isi `MUSIXMATCH_API_KEY`.
+Lirik ditampilkan oleh embed resmi Genius, lengkap dengan kredit dan tautan Genius. Game ini hanya
+mencari ID lagunya di API Genius dan tidak menyimpan lirik apa pun. Embed-nya berjalan di iframe
+yang di-sandbox, jadi script Genius tidak bisa menyentuh halaman game.
+
+1. Buka https://genius.com/api-clients, buat **New API Client** (nama dan URL bebas), lalu klik
+   **Generate Access Token**.
+2. Salin `.env.example` menjadi `.env.local` dan isi `GENIUS_ACCESS_TOKEN`.
 3. Untuk online, tambahkan variabel yang sama di Vercel (Settings → Environment Variables).
-
-Paket gratis Musixmatch memberi sebagian lirik saja, untuk pemakaian non-komersial, dan meminta
-baris hak cipta serta tracking pixel-nya ikut ditampilkan (sudah ditangani di `LyricsPanel`).
-Lirik diambil langsung saat ronde selesai; game ini tidak menyimpan lirik apa pun.
 
 ## Menjalankan
 
@@ -39,4 +41,4 @@ npm run dev
 ```
 
 Buka http://localhost:5173 (fungsi `api/` ikut jalan saat dev). Untuk online, import repo ini di
-Vercel (framework: Vite); environment variable hanya `MUSIXMATCH_API_KEY` untuk lirik (opsional).
+Vercel (framework: Vite); environment variable hanya `GENIUS_ACCESS_TOKEN` untuk lirik (opsional).

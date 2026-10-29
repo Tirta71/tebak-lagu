@@ -89,47 +89,65 @@ function useClip(src: string | undefined) {
   return { play, stop, playing, time }
 }
 
-type Lyrics = { configured?: boolean; found?: boolean; text?: string; copyright?: string | null; pixel?: string | null }
+type Genius = { configured?: boolean; found?: boolean; id?: number; url?: string }
+
+/** The page Genius's embed runs in: its script writes the lyrics in as the page loads, with Genius's own credit and links. */
+function geniusPage(id: number, url: string, title: string) {
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+  return `<!doctype html><html><head><meta charset="utf-8"><base target="_blank">
+<style>body{margin:0;padding:4px 2px;background:#0d1020;color:#eef0ff;font:14px/1.7 'Plus Jakarta Sans',system-ui,sans-serif}a{color:#8b8cff}</style></head>
+<body><div id="rg_embed_link_${id}" class="rg_embed_link" data-song-id="${id}">Baca lirik “${esc(title)}” di <a href="${esc(url)}">Genius</a></div>
+<script crossorigin src="https://genius.com/songs/${id}/embed.js"></script></body></html>`
+}
 
 /**
- * The song's lyrics on the answer card, fetched from Musixmatch's licensed API at that moment (the
- * game keeps no lyrics itself). Shown with Musixmatch's copyright line and tracking pixel, as its
- * terms ask. Without an API key, or for songs it doesn't have, it's the link to Musixmatch instead.
+ * The song's lyrics on the answer card, as Genius's own embed: Genius shows them, with its credit
+ * and links; the game only finds the song on Genius and keeps no lyrics itself. The embed runs in
+ * a sandboxed frame so its script can't touch the game. Without a Genius token, or for a song
+ * Genius doesn't have, there are links to the lyrics on Spotify and Genius instead.
  */
-function LyricsPanel({ title, artist, link }: { title: string; artist: string; link: string }) {
-  const [lyrics, setLyrics] = useState<Lyrics | null>(null)
+function LyricsPanel({ title, artist, spotify }: { title: string; artist: string; spotify: string }) {
+  const [genius, setGenius] = useState<Genius | null>(null)
   useEffect(() => {
     let alive = true
-    setLyrics(null)
-    fetch(`/api/lyrics?${new URLSearchParams({ title, artist })}`)
+    setGenius(null)
+    fetch(`/api/genius?${new URLSearchParams({ title, artist })}`)
       .then((r) => r.json())
       .catch(() => ({ found: false }))
-      .then((j: Lyrics) => alive && setLyrics(j))
+      .then((j: Genius) => alive && setGenius(j))
     return () => {
       alive = false
     }
   }, [title, artist])
 
-  if (!lyrics) return <p className="lyrics-note">Mencari lirik…</p>
-  if (!lyrics.found)
+  if (!genius) return <p className="lyrics-note">Mencari lirik…</p>
+  if (!genius.found || !genius.id || !genius.url) {
+    const search = `https://genius.com/search?q=${encodeURIComponent(`${artist.split(',')[0]} ${norm(title)}`)}`
     return (
-      <a className="lyrics-note" href={link} target="_blank" rel="noreferrer">
-        <FileText size={14} /> {lyrics.configured === false ? 'Lihat liriknya di Musixmatch' : 'Lirik belum tersedia di sini · cari di Musixmatch'}
-      </a>
+      <p className="lyrics-note">
+        <FileText size={14} /> Lirik:{' '}
+        <a href={spotify} target="_blank" rel="noreferrer">
+          Spotify
+        </a>{' '}
+        ·{' '}
+        <a href={search} target="_blank" rel="noreferrer">
+          Genius
+        </a>
+      </p>
     )
+  }
   return (
     <details className="lyrics" open>
       <summary>
-        <FileText size={14} /> Lirik
+        <FileText size={14} /> Lirik · Genius
       </summary>
-      <p className="lyrics-text">{lyrics.text}</p>
-      <small>
-        {lyrics.copyright ?? ''} Lirik dari{' '}
-        <a href={link} target="_blank" rel="noreferrer">
-          Musixmatch
-        </a>
-      </small>
-      {lyrics.pixel && <img className="lyrics-pixel" src={lyrics.pixel} alt="" width={1} height={1} />}
+      <iframe
+        className="lyrics-frame"
+        title={`Lirik ${title} dari Genius`}
+        srcDoc={geniusPage(genius.id, genius.url, title)}
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+        loading="lazy"
+      />
     </details>
   )
 }
@@ -293,7 +311,6 @@ export function App() {
   }
 
   const spotifyLink = round ? `https://open.spotify.com/track/${round.track.uri.split(':')[2]}` : ''
-  const lyricsLink = round ? `https://www.musixmatch.com/search?query=${encodeURIComponent(`${round.track.artist.split(',')[0]} ${round.track.title}`)}` : ''
 
   return (
     <div className="page">
@@ -408,7 +425,7 @@ export function App() {
                     </a>
                   </div>
                 </div>
-                <LyricsPanel title={round.track.title} artist={round.track.artist} link={lyricsLink} />
+                <LyricsPanel title={round.track.title} artist={round.track.artist} spotify={spotifyLink} />
                 <button className="primary" onClick={newRound} disabled={loading}>
                   {loading ? 'Menyiapkan…' : 'Lagu berikutnya'}
                 </button>
