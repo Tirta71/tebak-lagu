@@ -1,7 +1,7 @@
 // Fetches lyrics for "Tebak Lirik" (continue-the-lyrics) quiz mode.
 //   /api/lyrics?title=<title>&artist=<artist>&duration=<sec>&album=<album>
-// Returns synced context lines (with delays) + answer line + wrong options.
-// Uses LRCLIB synced lyrics so lines match the Deezer 30s preview window.
+// Returns ALL synced lyrics lines with timestamps so the client can
+// reveal them in real-time synced to the Deezer audio preview.
 
 const json = (body, cache = 'no-store', status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': cache } })
@@ -16,7 +16,6 @@ function cleanTitle(t) {
     .trim()
 }
 
-/** Parse LRC synced lyrics into [{time, text}]. */
 function parseLrc(lrc) {
   const lines = []
   for (const raw of lrc.split('\n')) {
@@ -25,127 +24,13 @@ function parseLrc(lrc) {
     const text = m[4].trim()
     if (!text) continue
     const time = Number(m[1]) * 60 + Number(m[2]) + Number(m[3]) / (m[3].length === 2 ? 100 : 1000)
-    lines.push({ time, text })
+    lines.push({ time: Math.round(time * 100) / 100, text })
   }
   return lines.sort((a, b) => a.time - b.time)
 }
 
-/** Deduplicate consecutive identical lines. */
 function dedupSynced(lines) {
   return lines.filter((l, i) => i === 0 || l.text !== lines[i - 1].text)
-}
-
-function extractPlainLines(text) {
-  return text
-    .split('\n')
-    .map((l) => l.replace(/^\[.*?\]\s*/, '').trim())
-    .filter((l) => l && !l.startsWith('['))
-}
-
-function dedupPlain(lines) {
-  return lines.filter((l, i) => i === 0 || l !== lines[i - 1])
-}
-
-/**
- * Pick question from synced lyrics, targeting the Deezer preview window.
- * Deezer previews are typically 30s starting around 30-60s into the song.
- * Returns { context: [{text, delay}], answer, wrongs, previewStart }
- */
-function pickSyncedQuestion(syncedLines) {
-  const lines = dedupSynced(syncedLines)
-  if (lines.length < 8) return null
-
-  // Deezer preview window: usually starts around 30s, try multiple windows
-  const windows = [
-    [25, 55], [30, 60], [20, 50], [35, 65], [40, 70], [15, 45], [45, 75]
-  ]
-
-  let bestWindow = null
-  let bestCount = 0
-  for (const [start, end] of windows) {
-    const inWindow = lines.filter(l => l.time >= start && l.time <= end)
-    if (inWindow.length > bestCount) {
-      bestCount = inWindow.length
-      bestWindow = [start, end]
-    }
-  }
-
-  if (!bestWindow || bestCount < 5) {
-    // fallback: pick densest 30s window
-    for (let s = 0; s <= lines[lines.length - 1].time - 25; s += 5) {
-      const inW = lines.filter(l => l.time >= s && l.time <= s + 30)
-      if (inW.length > bestCount) {
-        bestCount = inW.length
-        bestWindow = [s, s + 30]
-      }
-    }
-  }
-
-  if (!bestWindow || bestCount < 5) return null
-
-  const windowLines = lines.filter(l => l.time >= bestWindow[0] && l.time <= bestWindow[1])
-  const contextLen = Math.min(3 + Math.floor(Math.random() * 3), windowLines.length - 2)
-  if (contextLen < 2) return null
-
-  const maxStart = windowLines.length - contextLen - 1
-  if (maxStart < 0) return null
-  const startIdx = Math.floor(Math.random() * (maxStart + 1))
-
-  const contextSynced = windowLines.slice(startIdx, startIdx + contextLen)
-  const answerLine = windowLines[startIdx + contextLen]
-  if (!answerLine) return null
-
-  // Build context with delays (time gap between consecutive lines)
-  const context = contextSynced.map((l, i) => ({
-    text: l.text,
-    delay: i === 0 ? 0 : Math.max(0.5, Math.min(5, l.time - contextSynced[i - 1].time))
-  }))
-
-  // Wrong candidates from outside the context+answer area
-  const usedTexts = new Set([...contextSynced.map(l => l.text), answerLine.text])
-  const candidates = lines
-    .filter(l => !usedTexts.has(l.text) && l.text.length > 5)
-    .map(l => l.text)
-
-  // shuffle candidates
-  for (let i = candidates.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[candidates[i], candidates[j]] = [candidates[j], candidates[i]]
-  }
-
-  return {
-    context,
-    answer: answerLine.text,
-    wrongs: candidates.slice(0, 6),
-    previewStart: bestWindow[0]
-  }
-}
-
-/** Fallback: pick from plain lyrics (no timing). */
-function pickPlainQuestion(text) {
-  const lines = dedupPlain(extractPlainLines(text))
-  if (lines.length < 6) return null
-  const contextLen = 3 + Math.floor(Math.random() * 3)
-  const maxStart = lines.length - contextLen - 1
-  if (maxStart < 1) return null
-  const start = 1 + Math.floor(Math.random() * maxStart)
-  const contextLines = lines.slice(start, start + contextLen)
-  const answer = lines[start + contextLen]
-  const usedIdxs = new Set()
-  for (let k = start; k <= start + contextLen; k++) usedIdxs.add(k)
-  const candidates = []
-  for (let k = 0; k < lines.length; k++) {
-    if (!usedIdxs.has(k) && lines[k] !== answer && lines[k].length > 5) candidates.push(lines[k])
-  }
-  for (let i = candidates.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[candidates[i], candidates[j]] = [candidates[j], candidates[i]]
-  }
-  return {
-    context: contextLines.map((text, i) => ({ text, delay: i === 0 ? 0 : 2.5 })),
-    answer,
-    wrongs: candidates.slice(0, 6)
-  }
 }
 
 function normalize(s) {
@@ -182,7 +67,6 @@ function scoreResult(r, title, artist, album, duration) {
   return score
 }
 
-/** Returns { syncedLyrics, plainLyrics } or null. */
 async function fromLrclib(title, artist, duration) {
   const params = new URLSearchParams({ track_name: title, artist_name: artist })
   if (duration) params.set('duration', String(duration))
@@ -196,7 +80,6 @@ async function fromLrclib(title, artist, duration) {
   return { syncedLyrics: j.syncedLyrics || null, plainLyrics: j.plainLyrics || null }
 }
 
-/** Returns { syncedLyrics, plainLyrics } or null. */
 async function searchLrclib(title, artist, album, duration) {
   const params = new URLSearchParams({ q: `${title} ${artist}` })
   const res = await fetch(`https://lrclib.net/api/search?${params}`, UA)
@@ -215,6 +98,21 @@ async function searchLrclib(title, artist, album, duration) {
   return best
 }
 
+/**
+ * Find the densest 30s windows for picking context+answer.
+ * Returns sorted list of candidate windows [{start, end, count}].
+ */
+function findDenseWindows(lines) {
+  const windows = []
+  const maxT = lines[lines.length - 1].time
+  for (let s = 0; s <= maxT - 20; s += 5) {
+    const e = s + 30
+    const inW = lines.filter(l => l.time >= s && l.time < e)
+    if (inW.length >= 5) windows.push({ start: s, end: e, count: inW.length })
+  }
+  return windows.sort((a, b) => b.count - a.count)
+}
+
 export async function GET(request) {
   const p = new URL(request.url).searchParams
   const rawTitle = p.get('title') ?? ''
@@ -231,23 +129,60 @@ export async function GET(request) {
     if (!result) result = await searchLrclib(title, artist, album, duration)
     if (!result) return json({ found: false }, 's-maxage=3600')
 
-    // prefer synced lyrics for accurate timing
-    let q = null
-    if (result.syncedLyrics) {
-      const parsed = parseLrc(result.syncedLyrics)
-      if (parsed.length >= 8) q = pickSyncedQuestion(parsed)
-    }
-    // fallback to plain lyrics
-    if (!q && result.plainLyrics) q = pickPlainQuestion(result.plainLyrics)
-    if (!q && result.syncedLyrics) q = pickPlainQuestion(result.syncedLyrics)
-    if (!q) return json({ found: false }, 's-maxage=3600')
+    // only use synced lyrics for proper audio sync
+    if (!result.syncedLyrics) return json({ found: false }, 's-maxage=3600')
 
+    const allLines = dedupSynced(parseLrc(result.syncedLyrics))
+    if (allLines.length < 8) return json({ found: false }, 's-maxage=3600')
+
+    // find best windows for question picking
+    const windows = findDenseWindows(allLines)
+    if (!windows.length) return json({ found: false }, 's-maxage=3600')
+
+    // pick context + answer from a good window
+    let picked = null
+    for (const w of windows) {
+      const windowLines = allLines.filter(l => l.time >= w.start && l.time < w.end)
+      const contextLen = Math.min(3 + Math.floor(Math.random() * 3), windowLines.length - 2)
+      if (contextLen < 3) continue
+      const maxStart = windowLines.length - contextLen - 1
+      if (maxStart < 0) continue
+      const si = Math.floor(Math.random() * (maxStart + 1))
+      const ctxLines = windowLines.slice(si, si + contextLen)
+      const ansLine = windowLines[si + contextLen]
+      if (!ansLine) continue
+
+      // wrongs from outside context
+      const usedTexts = new Set([...ctxLines.map(l => l.text), ansLine.text])
+      const cands = allLines.filter(l => !usedTexts.has(l.text) && l.text.length > 5).map(l => l.text)
+      for (let i = cands.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[cands[i], cands[j]] = [cands[j], cands[i]]
+      }
+      if (cands.length < 3) continue
+
+      picked = {
+        contextLines: ctxLines,
+        answer: ansLine,
+        wrongs: cands.slice(0, 6),
+        windowStart: w.start
+      }
+      break
+    }
+
+    if (!picked) return json({ found: false }, 's-maxage=3600')
+
+    // return ALL synced lines + the question info
+    // client will use timestamps to sync with audio
     return json({
       found: true,
-      context: q.context,
-      answer: q.answer,
-      wrongs: q.wrongs,
-      synced: !!result.syncedLyrics
+      lines: allLines,
+      contextIdx: allLines.indexOf(picked.contextLines[0]),
+      contextLen: picked.contextLines.length,
+      answerIdx: allLines.indexOf(picked.answer),
+      answer: picked.answer.text,
+      wrongs: picked.wrongs,
+      synced: true
     }, 's-maxage=3600')
   } catch {
     return json({ found: false }, 'no-store')

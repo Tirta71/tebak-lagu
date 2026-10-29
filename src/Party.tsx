@@ -335,8 +335,9 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
             if (qq.answer.album) lparams.album = qq.answer.album
             const r = await fetch(`/api/lyrics?${new URLSearchParams(lparams)}`)
             const lj = await r.json()
-            if (lj.found && lj.context?.length >= 2) {
-              const ctx = (lj.context as Array<string | {text: string}>).map((c: string | {text: string}) => typeof c === 'string' ? c : c.text)
+            if (lj.found && lj.synced && lj.lines?.length >= 8) {
+              const lines = lj.lines as Array<{time: number; text: string}>
+              const ctx = lines.slice(lj.contextIdx, lj.contextIdx + lj.contextLen).map((l: {text: string}) => l.text)
               return { song: qq.answer, context: ctx, answerLine: lj.answer as string, wrongs: (lj.wrongs ?? []) as string[] } satisfies LyricsQ
             }
           } catch {}
