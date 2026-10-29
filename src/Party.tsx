@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Peer, { type DataConnection } from 'peerjs'
-import { ArrowLeft, Check, ChevronRight, Copy, Crown, History, ListMusic, LogOut, Play, Settings2, Trophy, Users, Volume2, X, Zap } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Copy, Crown, History, ListMusic, LogOut, Pencil, Play, Settings2, Trophy, Users, Volume2, X, Zap } from 'lucide-react'
 import { Bit, Equalizer } from './Bit'
 import { LEVELS } from './levels'
-import type { Profile } from './local'
+import { AVATARS, saveProfile, type Profile } from './local'
 import { QuizPicker } from './QuizPicker'
 import { FIRST_BONUS, MAX_PLAYERS, newCode, peerId, type GuestMsg, type HostMsg, type Player, type PublicQuestion, type RoundResult, type Settings, type Step } from './room'
 import { enoughArtists, makeQuestions, MODE_LABEL, pointsFor } from './Quiz'
@@ -153,6 +153,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
       if (!q?.answer.preview) return
       current.current = i
       answers.current.clear()
+      clearTimeout(timer.current)
       emit({ t: 'q', q: { i, total: questions.current.length, kind: q.kind, preview: q.answer.preview, options: q.options.map(({ id, title, artist }) => ({ id, title, artist })) } })
       timer.current = window.setTimeout(finish, (rulesOf().seconds + GRACE) * 1000)
     },
@@ -241,6 +242,13 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
               players.current.set(conn.peer, { id: conn.peer, name: m.name.slice(0, 18) || 'Tamu', avatar: m.avatar, score: 0 })
               lobby()
             } else if (m.t === 'answer') onAnswer(conn.peer, m)
+            else if (m.t === 'profile') {
+              const p = players.current.get(conn.peer)
+              if (!p) return
+              p.name = m.name.slice(0, 18) || 'Tamu'
+              p.avatar = AVATARS.includes(m.avatar) ? m.avatar : p.avatar
+              lobby()
+            }
           })
           conn.on('close', () => {
             conns.current.delete(conn.peer)
@@ -286,7 +294,21 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     [role, onAnswer],
   )
 
-  return { view, roomCode, myId, answer, begin, nextSong, setStep, configure, chooseQuiz, backToLobby }
+  /** A new name or avatar for me: the host changes its own seat, a guest asks the host to. */
+  const rename = useCallback(
+    (name: string, avatar: string) => {
+      if (role === 'host') {
+        const p = players.current.get(HOST)
+        if (!p) return
+        p.name = name.slice(0, 18) || 'Host'
+        p.avatar = avatar
+        lobby()
+      } else hostConn.current?.send({ t: 'profile', name, avatar } satisfies GuestMsg)
+    },
+    [role, lobby],
+  )
+
+  return { view, roomCode, myId, answer, begin, nextSong, setStep, configure, chooseQuiz, backToLobby, rename }
 }
 
 /** One song in the room: the preview plays, the clock runs, pick a choice. */
@@ -298,6 +320,9 @@ function RoomQuestion({ q, settings, answered, players, onAnswer }: { q: PublicQ
   const audio = useRef<HTMLAudioElement | null>(null)
   const startedAt = useRef(0)
   const done = useRef(false)
+  // the room re-renders whenever someone answers; keep the song and its clock out of that
+  const report = useRef(onAnswer)
+  report.current = onAnswer
 
   const pick = useCallback(
     (id: number | null) => {
@@ -305,9 +330,9 @@ function RoomQuestion({ q, settings, answered, players, onAnswer }: { q: PublicQ
       done.current = true
       setPicked(id)
       const seconds = startedAt.current ? (performance.now() - startedAt.current) / 1000 : rules.seconds
-      onAnswer(id, Math.min(seconds, rules.seconds))
+      report.current(id, Math.min(seconds, rules.seconds))
     },
-    [onAnswer, rules.seconds],
+    [rules.seconds],
   )
 
   useEffect(() => {
@@ -533,22 +558,70 @@ function Board({ players, answered, results, history, me }: { players: Player[];
   )
 }
 
+/** Your own seat in the lobby: tap the name to change it, the avatar to pick another. */
+function MySeat({ player, host, onChange }: { player: Player; host: boolean; onChange: (name: string, avatar: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(player.name)
+  const save = () => {
+    setEditing(false)
+    const next = name.trim()
+    if (next && next !== player.name) onChange(next, player.avatar)
+    else setName(player.name)
+  }
+  const nextAvatar = () => onChange(player.name, AVATARS[(AVATARS.indexOf(player.avatar) + 1) % AVATARS.length])
+  return (
+    <li className={`seat mine${host ? ' host' : ''}`}>
+      <button className="sb-avatar" onClick={nextAvatar} title="Ganti avatar" aria-label="Ganti avatar">
+        {player.avatar}
+      </button>
+      {editing ? (
+        <input
+          className="seat-name"
+          value={name}
+          maxLength={18}
+          autoFocus
+          aria-label="Nama kamu"
+          onChange={(e) => setName(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') save()
+            if (e.key === 'Escape') {
+              setName(player.name)
+              setEditing(false)
+            }
+          }}
+        />
+      ) : (
+        <button className="seat-edit" onClick={() => setEditing(true)} title="Ganti nama">
+          <b>{player.name}</b>
+          <Pencil size={13} />
+        </button>
+      )}
+      <small>kamu</small>
+      {host && <Crown size={16} className="crown" />}
+    </li>
+  )
+}
+
 /** The players column: everyone in the room, then empty seats up to the limit. */
-function Seats({ players, me }: { players: Player[]; me: string }) {
+function Seats({ players, me, onRename }: { players: Player[]; me: string; onRename: (name: string, avatar: string) => void }) {
   return (
     <aside className="seats">
       <h3>
         Pemain {players.length}/{MAX_PLAYERS}
       </h3>
       <ol>
-        {players.map((p) => (
-          <li key={p.id} className={`seat${p.id === HOST ? ' host' : ''}`}>
-            <span className="sb-avatar">{p.avatar}</span>
-            <b>{p.name}</b>
-            {p.id === me && <small>kamu</small>}
-            {p.id === HOST && <Crown size={16} className="crown" />}
-          </li>
-        ))}
+        {players.map((p) =>
+          p.id === me ? (
+            <MySeat key={p.id} player={p} host={p.id === HOST} onChange={onRename} />
+          ) : (
+            <li key={p.id} className={`seat${p.id === HOST ? ' host' : ''}`}>
+              <span className="sb-avatar">{p.avatar}</span>
+              <b>{p.name}</b>
+              {p.id === HOST && <Crown size={16} className="crown" />}
+            </li>
+          ),
+        )}
         {Array.from({ length: MAX_PLAYERS - players.length }, (_, k) => (
           <li key={`empty-${k}`} className="seat empty">
             <span className="sb-avatar" />
@@ -590,8 +663,8 @@ function Summary({ s }: { s: Settings }) {
   )
 }
 
-export function Party({ role, code, initial, profile, onLeave }: { role: 'host' | 'guest'; code: string; initial: GameSettings; profile: Profile; onLeave: () => void }) {
-  const { view, roomCode, myId, answer, begin, nextSong, setStep, configure, chooseQuiz, backToLobby } = useRoom(role, code, profile, initial)
+export function Party({ role, code, initial, profile, onProfile, onLeave }: { role: 'host' | 'guest'; code: string; initial: GameSettings; profile: Profile; onProfile: (p: Profile) => void; onLeave: () => void }) {
+  const { view, roomCode, myId, answer, begin, nextSong, setStep, configure, chooseQuiz, backToLobby, rename } = useRoom(role, code, profile, initial)
   const [copied, setCopied] = useState(false)
   const link = `${location.origin}/?room=${roomCode}`
   const me = myId.current
@@ -669,7 +742,17 @@ export function Party({ role, code, initial, profile, onLeave }: { role: 'host' 
       {view.phase === 'lobby' && s && (
         <>
           <div className="lobby-grid">
-            <Seats players={view.players} me={me} />
+            <Seats
+              players={view.players}
+              me={me}
+              onRename={(name, avatar) => {
+                rename(name, avatar)
+                // the next room (and solo play) uses it too
+                const p = { name, avatar }
+                saveProfile(p)
+                onProfile(p)
+              }}
+            />
             <div className="lobby-main">
               {view.error && <p className="note error">{view.error}</p>}
               {host && view.step === 'atur' && (

@@ -63,7 +63,7 @@ export function App() {
           />
         )}
         {screen.at === 'party-home' && <PartyHome onBack={home} onCreate={() => setScreen({ at: 'party', role: 'host', code: '' })} onJoin={(code) => setScreen({ at: 'party', role: 'guest', code })} />}
-        {screen.at === 'party' && <Party key={`${screen.role}-${screen.code}`} role={screen.role} code={screen.code} initial={gameSettings} profile={profile} onLeave={home} />}
+        {screen.at === 'party' && <Party key={`${screen.role}-${screen.code}`} role={screen.role} code={screen.code} initial={gameSettings} profile={profile} onProfile={setProfile} onLeave={home} />}
         {screen.at === 'quiz' && <Quiz key={screen.run} source={screen.source} onQuit={home} onDone={(answers, name, mode) => setScreen({ at: 'result', source: screen.source, name, answers, mode })} />}
         {screen.at === 'result' && <Result source={screen.source} name={screen.name} answers={screen.answers} mode={screen.mode} profile={profile} onAgain={() => start(screen.source)} onHome={home} />}
       </main>

@@ -40,7 +40,10 @@ export type HostMsg =
   | { t: 'full' }
 
 /** Guest → host. */
-export type GuestMsg = { t: 'hello'; name: string; avatar: string } | { t: 'answer'; i: number; id: number | null; seconds: number }
+export type GuestMsg =
+  | { t: 'hello'; name: string; avatar: string }
+  | { t: 'answer'; i: number; id: number | null; seconds: number }
+  | { t: 'profile'; name: string; avatar: string }
 
 /** Extra points for the first right answer on each song. */
 export const FIRST_BONUS = 200
