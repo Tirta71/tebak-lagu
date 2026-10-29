@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, ExternalLink, Music2, Pause, Play, Search, SkipForward, X } from 'lucide-react'
+import { Check, ExternalLink, FileText, Music2, Pause, Play, Search, SkipForward, X } from 'lucide-react'
 import { norm, sameArtist } from '../api/_match.js'
 
 /*
- * Tebak Lagu: a song from the playlist plays for one second; guess it, or skip to hear a little
- * more (2, 4, 7, 11, 16 s). Six tries; the sooner you get it, the more points. Song lists come
+ * Tebak Lagu: a song from the playlist plays for 15 seconds; guess it, or skip to hear a little
+ * more (18, 21, 24, 27, 30 s, the whole preview). Six tries; the sooner you get it, the more points. Song lists come
  * from a Spotify playlist, the audio from Deezer's 30-second previews.
  */
 
 const DEFAULT_PLAYLIST = 'https://open.spotify.com/playlist/16iEQxHem0W1B5Di8jCpjH'
-const CLIPS = [1, 2, 4, 7, 11, 16]
+const CLIPS = [15, 18, 21, 24, 27, 30]
+/** The whole bar: Deezer's previews are 30 seconds. */
+const FULL = CLIPS[CLIPS.length - 1]
 const POINTS = [100, 80, 60, 40, 25, 10]
 
 type Track = { uri: string; title: string; artist: string }
@@ -246,6 +248,7 @@ export function App() {
   }
 
   const spotifyLink = round ? `https://open.spotify.com/track/${round.track.uri.split(':')[2]}` : ''
+  const lyricsLink = round ? `https://www.musixmatch.com/search?query=${encodeURIComponent(`${round.track.artist.split(',')[0]} ${round.track.title}`)}` : ''
 
   return (
     <div className="page">
@@ -284,7 +287,7 @@ export function App() {
             <span className="disc" aria-hidden />
             <h1>Seberapa kenal kamu playlist ini?</h1>
             <p>
-              Dengar potongan lagu dari <b>{playlist.name}</b> ({playlist.tracks.length} lagu), lalu tebak judulnya. Mulai dari 1 detik; tiap kali
+              Dengar potongan lagu dari <b>{playlist.name}</b> ({playlist.tracks.length} lagu), lalu tebak judulnya. Mulai dari 15 detik; tiap kali
               lewati, potongannya makin panjang. Makin cepat benar, makin banyak poin.
             </p>
             <button className="primary" onClick={newRound} disabled={loading}>
@@ -317,12 +320,12 @@ export function App() {
               })}
             </ol>
 
-            {/* the clip bar: 16 s in all, lit up to the part you can hear now */}
+            {/* the clip bar: the whole 30 s preview, lit up to the part you can hear now */}
             <div className="clip" aria-hidden>
-              <span className="clip-open" style={{ width: `${((round.over ? 16 : unlocked) / 16) * 100}%` }} />
-              <span className="clip-time" style={{ width: `${(Math.min(time, 16) / 16) * 100}%`, opacity: playing ? 1 : 0 }} />
+              <span className="clip-open" style={{ width: `${((round.over ? FULL : unlocked) / FULL) * 100}%` }} />
+              <span className="clip-time" style={{ width: `${(Math.min(time, FULL) / FULL) * 100}%`, opacity: playing ? 1 : 0 }} />
               {CLIPS.slice(0, -1).map((c) => (
-                <i key={c} style={{ left: `${(c / 16) * 100}%` }} />
+                <i key={c} style={{ left: `${(c / FULL) * 100}%` }} />
               ))}
             </div>
 
@@ -357,6 +360,10 @@ export function App() {
                     </button>
                     <a className="ghost small" href={spotifyLink} target="_blank" rel="noreferrer">
                       <ExternalLink size={14} /> Spotify
+                    </a>
+                    {/* lyrics are licensed, so the game links to them on Musixmatch instead of showing them */}
+                    <a className="ghost small" href={lyricsLink} target="_blank" rel="noreferrer">
+                      <FileText size={14} /> Lirik
                     </a>
                   </div>
                 </div>
