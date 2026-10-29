@@ -286,7 +286,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     } else if (typeof RTCPeerConnection === 'undefined') fail(NO_WEBRTC)
     else {
       const room = code.toUpperCase()
-      const p = new Peer(undefined, PEER_CONFIG)
+      const p = new Peer(undefined as unknown as string, PEER_CONFIG)
       peer.current = p
       p.on('open', (id) => {
         if (closed) return p.destroy()
