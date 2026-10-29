@@ -14,7 +14,7 @@ export function Loading({ title, progress, need = progress?.want ?? 0, onCancel 
   return (
     <section className="countdown">
       <Bit size={130} mood="listen" />
-      <div className="loading-card" role="status" aria-live="polite">
+      <div className="loading-status" role="status" aria-live="polite">
         <span className="loading-title">{title}</span>
         {p && (
           <span className="loading-count">
