@@ -30,9 +30,11 @@ export type Settings = { quiz: string | null; picture?: string | null; mode: Mod
 /** Where the host is in setting up: 1 settings, 2 picking a quiz, 3 ready to start. */
 export type Step = 'atur' | 'kuis' | 'main'
 
-export type TimedLine = { time: number | null; text: string }
-/** A lyrics question: lines are revealed one by one; players buzz to answer. */
-export type LyricsPublicQuestion = { i: number; total: number; preview: string; lines: TimedLine[]; synced: boolean; audioStart: number; options: { id: number; title: string; artist: string }[] }
+/** A lyrics question for "continue the lyrics" mode. */
+export type LyricsPublicQuestion = {
+  i: number; total: number; preview: string
+  context: string[]; options: { text: string; correct: boolean }[]
+}
 
 /** Host → guests. */
 export type HostMsg =

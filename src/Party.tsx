@@ -5,7 +5,7 @@ import { Bit, Equalizer } from './Bit'
 import { LEVELS } from './levels'
 import { AVATARS, saveProfile, type Profile } from './local'
 import { QuizPicker } from './QuizPicker'
-import { ANSWER_DELAY, FIRST_BONUS, MAX_PLAYERS, WRONG_PENALTY, newCode, peerId, type GuestMsg, type HostMsg, type LyricsPublicQuestion, type Player, type PublicQuestion, type RoundResult, type Settings, type Step, type TimedLine } from './room'
+import { ANSWER_DELAY, FIRST_BONUS, MAX_PLAYERS, WRONG_PENALTY, newCode, peerId, type GuestMsg, type HostMsg, type LyricsPublicQuestion, type Player, type PublicQuestion, type RoundResult, type Settings, type Step } from './room'
 import { enoughArtists, makeQuestions, MODE_LABEL, pointsFor } from './Quiz'
 import { SettingsPanel, type GameSettings } from './Settings'
 import { sfx } from './sfx'
@@ -200,27 +200,39 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
 
   // ---------- host: lyrics mode ----------
 
-  type LyricsQ = Question & { lines: TimedLine[]; synced: boolean; audioStart: number }
+  type LyricsQ = { song: Song; context: string[]; answerLine: string; wrongs: string[] }
   const lyricsQuestions = useRef<LyricsQ[]>([])
   const lyricsBuzzer = useRef<string | null>(null)
   const lyricsWrongIds = useRef(new Set<number>())
   const lyricsLineTimer = useRef(0)
   const lyricsPenalties = useRef(new Map<string, number>())
+  const lastEmittedLyricsQ = useRef<LyricsPublicQuestion | null>(null)
 
   const askLyrics = useCallback((i: number) => {
     const q = lyricsQuestions.current[i]
-    if (!q?.answer.preview) return
+    if (!q?.song.preview) return
     current.current = i
     lyricsBuzzer.current = null
     lyricsWrongIds.current = new Set()
     lyricsPenalties.current = new Map()
     clearInterval(lyricsLineTimer.current)
-    emit({ t: 'lq', q: { i, total: lyricsQuestions.current.length, preview: q.answer.preview, lines: q.lines, synced: q.synced ?? false, audioStart: q.audioStart ?? 0, options: q.options.map(({ id, title, artist }) => ({ id, title, artist })) } })
-    // auto-finish after all lines + grace
+    const seen = new Set([q.answerLine.toLowerCase()])
+    const wrongs: string[] = []
+    for (const w of q.wrongs) { const k = w.toLowerCase(); if (!seen.has(k)) { wrongs.push(w); seen.add(k) }; if (wrongs.length >= 3) break }
+    for (let j = 0; j < lyricsQuestions.current.length && wrongs.length < 3; j++) {
+      if (j === i) continue
+      const oq = lyricsQuestions.current[j]
+      for (const line of [...oq.context, oq.answerLine]) {
+        const k = line.toLowerCase(); if (!seen.has(k) && line.length > 5) { wrongs.push(line); seen.add(k) }; if (wrongs.length >= 3) break
+      }
+    }
+    const opts = [{ text: q.answerLine, correct: true }, ...wrongs.slice(0, 3).map((t) => ({ text: t, correct: false }))]
+    for (let k = opts.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [opts[k], opts[j]] = [opts[j], opts[k]] }
+    const lq: LyricsPublicQuestion = { i, total: lyricsQuestions.current.length, preview: q.song.preview, context: q.context, options: opts }
+    lastEmittedLyricsQ.current = lq
+    emit({ t: 'lq', q: lq })
     clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => {
-      finishLyrics(i)
-    }, (q.lines.length * 2.5 + 8) * 1000)
+    timer.current = window.setTimeout(() => { finishLyrics(i) }, (q.context.length * 2.0 + 20) * 1000)
   }, [emit])
 
   const finishLyrics = useCallback((qi: number) => {
@@ -234,7 +246,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
       return { id: p.id, picked: null, points: -pen, first: false, right: false, seconds: null }
     })
     current.current = qi + 0.5
-    emit({ t: 'reveal', i: qi, answer: q.answer, results, players: [...players.current.values()] })
+    emit({ t: 'reveal', i: qi, answer: q.song, results, players: [...players.current.values()] })
   }, [emit])
 
   const onLyricsBuzz = useCallback((from: string, qi: number) => {
@@ -253,12 +265,24 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     else apply({ t: 'lq-buzz-taken', id: from, name: p?.name ?? '?' })
   }, [apply])
 
-  const onLyricsAnswer = useCallback((from: string, qi: number, songId: number) => {
+  const onLyricsAnswer = useCallback((from: string, qi: number, optIdx: number) => {
     if (qi !== Math.floor(current.current) || lyricsBuzzer.current !== from) return
     const q = lyricsQuestions.current[Math.floor(qi)]
     if (!q) return
-    if (songId === q.answer.id) {
-      // correct!
+    // host checks correctness: we need to re-derive which option was correct
+    // for simplicity, the answer text equals q.answer
+    // but we don't have the shuffled options here; we trust the guest's optIdx
+    // Actually the host built the options. We need to store them.
+    // For now: the guest sends the option text, host compares to q.answer
+    // TODO: better approach - store emitted options on host side
+    // Simplified: guest sends option index, but host doesn't have the options array after emit
+    // Let's store it:
+    const emittedQ = lastEmittedLyricsQ.current
+    if (!emittedQ || emittedQ.i !== qi) return
+    const picked = emittedQ.options[optIdx]
+    if (!picked) return
+
+    if (picked.correct) {
       const rules = rulesOf()
       const pen = lyricsPenalties.current.get(from) ?? 0
       const pts = Math.max(100, Math.round(800 * rules.factor) - pen)
@@ -269,19 +293,18 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
       const results: RoundResult[] = [...players.current.values()].map((pl) => {
         const myPen = lyricsPenalties.current.get(pl.id) ?? 0
         if (myPen > 0 && pl.id !== from) pl.score -= myPen
-        return { id: pl.id, picked: pl.id === from ? songId : null, points: pl.id === from ? pts : -myPen, first: pl.id === from, right: pl.id === from, seconds: null }
+        return { id: pl.id, picked: pl.id === from ? q.song.id : null, points: pl.id === from ? pts : -myPen, first: pl.id === from, right: pl.id === from, seconds: null }
       })
       current.current = qi + 0.5
-      emit({ t: 'reveal', i: qi, answer: q.answer, results, players: [...players.current.values()] })
+      emit({ t: 'reveal', i: qi, answer: q.song, results, players: [...players.current.values()] })
     } else {
-      // wrong
       lyricsBuzzer.current = null
-      lyricsWrongIds.current.add(songId)
+      lyricsWrongIds.current.add(optIdx)
       const pen = (lyricsPenalties.current.get(from) ?? 0) + 200
       lyricsPenalties.current.set(from, pen)
       emit({ t: 'lq-wrong', id: from, penalty: pen })
     }
-  }, [emit, apply])
+  }, [emit])
 
   /** Host: load the chosen quiz's songs, shuffle the questions and play the first. */
   const begin = useCallback(async () => {
@@ -307,10 +330,9 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
       const results = await Promise.all(
         qs.map(async (qq) => {
           try {
-            const audioStart = 3 + Math.random() * 24
-            const r = await fetch(`/api/lyrics?${new URLSearchParams({ title: qq.answer.title, artist: qq.answer.artist, start: String(Math.round(audioStart)) })}`)
+            const r = await fetch(`/api/lyrics?${new URLSearchParams({ title: qq.answer.title, artist: qq.answer.artist })}`)
             const lj = await r.json()
-            if (lj.found && lj.lines?.length >= 4) return { ...qq, lines: lj.lines, synced: !!lj.synced, audioStart }
+            if (lj.found && lj.context?.length >= 2) return { song: qq.answer, context: lj.context as string[], answerLine: lj.answer as string, wrongs: (lj.wrongs ?? []) as string[] } satisfies LyricsQ
           } catch {}
           return null
         }),
@@ -321,7 +343,6 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
         return setStep('kuis')
       }
       lyricsQuestions.current = withLyrics
-      questions.current = withLyrics
       setView((v) => ({ ...v, error: null }))
       askLyrics(0)
     } else {
@@ -333,7 +354,8 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
 
   const nextSong = useCallback(() => {
     const i = Math.floor(current.current) + 1
-    if (i < questions.current.length) {
+    const total = settings.current.lyrics ? lyricsQuestions.current.length : questions.current.length
+    if (i < total) {
       if (settings.current.lyrics) askLyrics(i)
       else ask(i)
     } else emit({ t: 'end', players: [...players.current.values()] })
@@ -643,72 +665,51 @@ function RoomQuestion({ q, settings, answered, players, onAnswer }: { q: PublicQ
   )
 }
 
-const LINE_INTERVAL = 2.5
+const LINE_INTERVAL = 2.0
 
-/** Lyrics round in a room: lyrics appear line by line, players buzz to answer. */
+/** Lyrics round in a room: context lines appear, then players buzz to pick the next line. */
 function RoomLyricsQuestion({ q, myId, buzzer, buzzerName, onBuzz, onAnswer }: {
   q: LyricsPublicQuestion
   myId: string
   buzzer: string | null
   buzzerName: string | null
   onBuzz: () => void
-  onAnswer: (id: number) => void
+  onAnswer: (idx: number) => void
 }) {
-  const [revealed, setRevealed] = useState(1)
+  const [revealed, setRevealed] = useState(0)
+  const [phase, setPhase] = useState<'revealing' | 'choosing'>('revealing')
   const [started, setStarted] = useState(false)
   const [myWrong, setMyWrong] = useState<Set<number>>(new Set())
   const [myPenalty, setMyPenalty] = useState(0)
   const audio = useRef<HTMLAudioElement | null>(null)
 
-  // play audio + reveal lines
   useEffect(() => {
-    setRevealed(1)
+    setRevealed(0)
+    setPhase('revealing')
     setMyWrong(new Set())
     setMyPenalty(0)
     const a = new Audio(q.preview)
     audio.current = a
-    a.addEventListener('playing', () => setStarted(true))
-    a.currentTime = q.audioStart || 0
-    a.play().catch(() => setStarted(false))
-    let lineCount = 1
-    let iv: number
-    if (q.synced && q.lines[0]?.time != null) {
-      const baseTime = q.lines[0].time!
-      iv = window.setInterval(() => {
-        if (!a.currentTime) return
-        let show = 1
-        for (let k = 0; k < q.lines.length; k++) {
-          if (q.lines[k].time != null && a.currentTime >= q.lines[k].time! - baseTime + (q.audioStart || 0)) show = k + 1
-        }
-        if (show !== lineCount) { lineCount = show; setRevealed(show) }
-        if (lineCount >= q.lines.length) clearInterval(iv)
-      }, 200)
-    } else {
-      iv = window.setInterval(() => {
-        lineCount++
-        setRevealed(lineCount)
-        if (lineCount >= q.lines.length) clearInterval(iv)
-      }, LINE_INTERVAL * 1000)
-    }
-    return () => {
-      clearInterval(iv)
-      a.pause()
-    }
+    a.addEventListener('playing', () => setStarted(true), { once: true })
+    a.play().catch(() => {})
+    let lineCount = 0
+    const iv = window.setInterval(() => {
+      lineCount++
+      setRevealed(lineCount)
+      if (lineCount >= q.context.length) {
+        clearInterval(iv)
+        setTimeout(() => setPhase('choosing'), 800)
+      }
+    }, LINE_INTERVAL * 1000)
+    return () => { clearInterval(iv); a.pause() }
   }, [q])
-
-  // when I get a wrong result back, track it locally
-  useEffect(() => {
-    // buzzer released means someone (maybe me) got it wrong
-    // the view.buzzer going null after being myId means I was wrong
-  }, [buzzer])
 
   const iHaveBuzz = buzzer === myId
   const someoneElseBuzzing = buzzer !== null && buzzer !== myId
-  const tryAnswer = (id: number) => {
-    if (!iHaveBuzz || myWrong.has(id)) return
-    onAnswer(id)
-    // optimistically mark as tried; if wrong, lq-wrong comes back
-    setMyWrong((w) => new Set(w).add(id))
+  const tryAnswer = (idx: number) => {
+    if (!iHaveBuzz || myWrong.has(idx)) return
+    onAnswer(idx)
+    setMyWrong((w) => new Set(w).add(idx))
     setMyPenalty((p) => p + 200)
   }
 
@@ -717,16 +718,16 @@ function RoomLyricsQuestion({ q, myId, buzzer, buzzerName, onBuzz, onAnswer }: {
       <div className="room-bar">
         <span>Lagu {q.i + 1}/{q.total}</span>
         <span>Tebak Lirik</span>
-        <span>Baris {Math.min(revealed, q.lines.length)}/{q.lines.length}</span>
       </div>
       <div className="timebar" aria-hidden>
-        <span style={{ transform: `scaleX(${Math.min(1, revealed / q.lines.length)})`, background: 'linear-gradient(90deg, #3fd6c6, #8b8cff)' }} />
+        <span style={{ transform: `scaleX(${Math.min(1, revealed / q.context.length)})`, background: 'linear-gradient(90deg, #3fd6c6, #8b8cff)' }} />
       </div>
       <div className="stage lyrics-stage">
         <div className="lyrics-snippet">
-          {q.lines.slice(0, revealed).map((line, k) => (
-            <p key={k} className={k === revealed - 1 ? 'lyrics-new' : ''}>{line.text}</p>
+          {q.context.slice(0, Math.max(revealed, phase !== 'revealing' ? q.context.length : 0)).map((line, k) => (
+            <p key={k} className={k === revealed - 1 && phase === 'revealing' ? 'lyrics-new' : ''}>{line}</p>
           ))}
+          {phase === 'choosing' && <p className="lyrics-blank">???</p>}
         </div>
         <Equalizer on={started} />
       </div>
@@ -737,39 +738,40 @@ function RoomLyricsQuestion({ q, myId, buzzer, buzzerName, onBuzz, onAnswer }: {
         </button>
       )}
 
-      {/* buzzer area */}
-      <div className="buzzer-area">
-        {someoneElseBuzzing && <p className="buzz-status"><Hand size={16} /> {buzzerName ?? 'Seseorang'} sedang menjawab...</p>}
-        {iHaveBuzz && <p className="buzz-status you"><Hand size={16} /> Giliranmu! Pilih jawaban</p>}
-        {!buzzer && (
-          <button className="primary buzz-btn" onClick={onBuzz}>
-            <Hand size={18} /> Angkat Tangan
-          </button>
-        )}
-      </div>
+      {phase === 'choosing' && (
+        <>
+          <p className="ask center-text">Lanjutkan liriknya!</p>
+          <div className="buzzer-area">
+            {someoneElseBuzzing && <p className="buzz-status"><Hand size={16} /> {buzzerName ?? 'Seseorang'} sedang menjawab...</p>}
+            {iHaveBuzz && <p className="buzz-status you"><Hand size={16} /> Giliranmu! Pilih jawaban</p>}
+            {!buzzer && (
+              <button className="primary buzz-btn" onClick={onBuzz}>
+                <Hand size={18} /> Angkat Tangan
+              </button>
+            )}
+          </div>
 
-      {myPenalty > 0 && <p className="penalty-tag center-text">Penalti: -{myPenalty}</p>}
+          {myPenalty > 0 && <p className="penalty-tag center-text">Penalti: -{myPenalty}</p>}
 
-      <div className="options">
-        {q.options.map((o, k) => {
-          const isMyWrong = myWrong.has(o.id)
-          return (
-            <button
-              key={o.id}
-              className={`option c${k}${isMyWrong ? ' wrong disabled' : !iHaveBuzz ? ' locked' : ''}`}
-              disabled={!iHaveBuzz || isMyWrong}
-              onClick={() => tryAnswer(o.id)}
-            >
-              <kbd>{'ABCD'[k]}</kbd>
-              <span>
-                <b>{o.title}</b>
-                <small>{o.artist}</small>
-              </span>
-              {isMyWrong && <X size={20} />}
-            </button>
-          )
-        })}
-      </div>
+          <div className="options lyrics-options">
+            {q.options.map((o, k) => {
+              const isMyWrong = myWrong.has(k)
+              return (
+                <button
+                  key={k}
+                  className={`option c${k}${isMyWrong ? ' wrong disabled' : !iHaveBuzz ? ' locked' : ''}`}
+                  disabled={!iHaveBuzz || isMyWrong}
+                  onClick={() => tryAnswer(k)}
+                >
+                  <kbd>{'ABCD'[k]}</kbd>
+                  <span><b>{o.text}</b></span>
+                  {isMyWrong && <X size={20} />}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
     </section>
   )
 }

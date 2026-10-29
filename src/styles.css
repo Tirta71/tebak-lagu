@@ -1036,6 +1036,36 @@ h2 {
   font-size: 0.85rem;
 }
 
+.lyrics-blank {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 4px;
+  animation: lyricPulse 1s ease-in-out infinite;
+}
+
+@keyframes lyricPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.lyrics-answer {
+  font-weight: 700;
+  font-size: 1.1rem;
+  padding: 6px 14px;
+  border-radius: 8px;
+}
+
+.lyrics-answer.correct {
+  color: var(--good);
+  background: rgba(52, 224, 161, 0.1);
+}
+
+.lyrics-answer.missed {
+  color: var(--bad);
+  background: rgba(255, 122, 144, 0.1);
+}
+
 .option.wrong.disabled {
   opacity: 0.4;
   pointer-events: none;

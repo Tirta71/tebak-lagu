@@ -1,7 +1,7 @@
-// Fetches lyrics for a song, for the "Tebak Lirik" quiz mode.
-//   /api/lyrics?title=<title>&artist=<artist>&start=<seconds>
-// Returns timed lyric lines that sync with the audio preview.
-// Tries LRCLIB first (has synced LRC), then lyrics.ovh (plain text fallback).
+// Fetches lyrics for "Tebak Lirik" (continue-the-lyrics) quiz mode.
+//   /api/lyrics?title=<title>&artist=<artist>
+// Returns context lines (shown to player) + answer (the next line to guess)
+// + extra wrong-option lines from the same song.
 
 const json = (body, cache = 'no-store', status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': cache } })
@@ -17,45 +17,60 @@ function cleanTitle(t) {
     .trim()
 }
 
-/** Parse "[mm:ss.xx] text" lines into {time, text} pairs. */
-function parseLrc(lrc) {
-  const out = []
-  for (const raw of lrc.split('\n')) {
-    const m = raw.match(/^\[(\d+):(\d+)(?:[.:]\d+)?\]\s*(.*)$/)
-    if (!m) continue
-    const text = m[3].trim()
-    if (!text) continue
-    out.push({ time: parseInt(m[1]) * 60 + parseInt(m[2]), text })
-  }
-  return out
-}
-
-/** Pick 8-12 consecutive timed lines starting near `start` seconds. */
-function pickTimedLines(parsed, start) {
-  const want = Math.min(parsed.length, 8 + Math.floor(Math.random() * 5))
-  if (parsed.length <= want) return parsed.map((l) => ({ time: l.time, text: l.text }))
-  // find the line closest to start time
-  let best = 0
-  for (let i = 0; i < parsed.length; i++) {
-    if (Math.abs(parsed[i].time - start) < Math.abs(parsed[best].time - start)) best = i
-  }
-  // clamp so we have enough lines after
-  const i = Math.min(best, parsed.length - want)
-  return parsed.slice(i, i + want).map((l) => ({ time: l.time, text: l.text }))
-}
-
-/** Pick 8-12 consecutive plain lines from roughly the middle. */
-function pickPlainLines(text) {
-  const lines = text
+/** Extract all non-empty, non-tag lyric lines from raw text. */
+function extractLines(text) {
+  return text
     .split('\n')
     .map((l) => l.replace(/^\[.*?\]\s*/, '').trim())
     .filter((l) => l && !l.startsWith('['))
-  if (lines.length < 4) return null
-  const want = Math.min(lines.length, 8 + Math.floor(Math.random() * 5))
-  const start = Math.max(0, Math.floor(lines.length * 0.2))
-  const end = Math.max(start + want, lines.length - 2)
-  const i = start + Math.floor(Math.random() * Math.max(1, end - start - want))
-  return lines.slice(i, i + want).map((text) => ({ time: null, text }))
+}
+
+/** Deduplicate consecutive identical lines (chorus repeats). */
+function dedup(lines) {
+  return lines.filter((l, i) => i === 0 || l !== lines[i - 1])
+}
+
+/**
+ * Pick a context chunk + answer from the lyrics.
+ * Returns { context: string[], answer: string, wrongs: string[] }
+ * wrongs = other lines from the song that can serve as wrong options.
+ */
+function pickQuestion(allLines) {
+  const lines = dedup(allLines)
+  if (lines.length < 6) return null
+  const contextLen = 3 + Math.floor(Math.random() * 3) // 3-5 context lines
+  const maxStart = lines.length - contextLen - 1
+  if (maxStart < 1) return null
+  const start = 1 + Math.floor(Math.random() * maxStart)
+  const context = lines.slice(start, start + contextLen)
+  const answer = lines[start + contextLen]
+  // collect wrong options: lines far from the context area
+  const usedIdxs = new Set()
+  for (let k = start; k <= start + contextLen; k++) usedIdxs.add(k)
+  const candidates = []
+  for (let k = 0; k < lines.length; k++) {
+    if (!usedIdxs.has(k) && lines[k] !== answer && lines[k].length > 5) candidates.push(lines[k])
+  }
+  // shuffle and take up to 6 wrong candidates (client picks 3)
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[candidates[i], candidates[j]] = [candidates[j], candidates[i]]
+  }
+  return { context, answer, wrongs: candidates.slice(0, 6) }
+}
+
+function normalize(s) {
+  return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim()
+}
+
+function similarity(a, b) {
+  const na = normalize(a), nb = normalize(b)
+  if (na === nb) return 1
+  if (na.includes(nb) || nb.includes(na)) return 0.8
+  const wa = new Set(na.split(' ')), wb = new Set(nb.split(' '))
+  let overlap = 0
+  for (const w of wa) if (wb.has(w)) overlap++
+  return overlap / Math.max(wa.size, wb.size)
 }
 
 async function fromLrclib(title, artist) {
@@ -63,7 +78,8 @@ async function fromLrclib(title, artist) {
   const res = await fetch(`https://lrclib.net/api/get?${params}`, UA)
   if (!res.ok) return null
   const j = await res.json()
-  return { synced: j.syncedLyrics || null, plain: j.plainLyrics || null }
+  if (j.trackName && similarity(j.trackName, title) < 0.5) return null
+  return j.plainLyrics || j.syncedLyrics || null
 }
 
 async function searchLrclib(title, artist) {
@@ -72,8 +88,12 @@ async function searchLrclib(title, artist) {
   if (!res.ok) return null
   const arr = await res.json()
   if (!arr.length) return null
-  const hit = arr[0]
-  return { synced: hit.syncedLyrics || null, plain: hit.plainLyrics || null }
+  for (const r of arr) {
+    const titleSim = similarity(r.trackName || '', title)
+    const artistSim = similarity(r.artistName || '', artist)
+    if (titleSim >= 0.6 && artistSim >= 0.5) return r.plainLyrics || r.syncedLyrics || null
+  }
+  return null
 }
 
 async function fromLyricsOvh(title, artist) {
@@ -87,41 +107,22 @@ export async function GET(request) {
   const p = new URL(request.url).searchParams
   const rawTitle = p.get('title') ?? ''
   const rawArtist = p.get('artist') ?? ''
-  const start = parseFloat(p.get('start') ?? '0') || 0
   if (!rawTitle) return json({ error: 'title required' }, 'no-store', 400)
 
   const title = cleanTitle(rawTitle)
   const artist = rawArtist.split(',')[0].trim()
 
   try {
-    // 1. LRCLIB exact match
-    let lrc = await fromLrclib(title, artist)
-    // 2. LRCLIB search (fuzzy)
-    if (!lrc?.synced && !lrc?.plain) lrc = await searchLrclib(title, artist)
+    let text = await fromLrclib(title, artist)
+    if (!text) text = await searchLrclib(title, artist)
+    if (!text) text = await fromLyricsOvh(title, artist)
+    if (!text) return json({ found: false }, 's-maxage=3600')
 
-    if (lrc) {
-      // prefer synced lyrics for timed reveal
-      if (lrc.synced) {
-        const parsed = parseLrc(lrc.synced)
-        if (parsed.length >= 4) {
-          const lines = pickTimedLines(parsed, start)
-          return json({ found: true, synced: true, lines }, 's-maxage=3600')
-        }
-      }
-      if (lrc.plain) {
-        const lines = pickPlainLines(lrc.plain)
-        if (lines && lines.length >= 4) return json({ found: true, synced: false, lines }, 's-maxage=3600')
-      }
-    }
+    const allLines = extractLines(text)
+    const q = pickQuestion(allLines)
+    if (!q) return json({ found: false }, 's-maxage=3600')
 
-    // 3. lyrics.ovh fallback (plain only)
-    const ovh = await fromLyricsOvh(title, artist)
-    if (ovh) {
-      const lines = pickPlainLines(ovh)
-      if (lines && lines.length >= 4) return json({ found: true, synced: false, lines }, 's-maxage=3600')
-    }
-
-    return json({ found: false }, 's-maxage=3600')
+    return json({ found: true, context: q.context, answer: q.answer, wrongs: q.wrongs }, 's-maxage=3600')
   } catch {
     return json({ found: false }, 'no-store')
   }
