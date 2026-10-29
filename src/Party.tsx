@@ -5,7 +5,7 @@ import { Bit, Equalizer } from './Bit'
 import { LEVELS } from './levels'
 import { AVATARS, saveProfile, type Profile } from './local'
 import { QuizPicker } from './QuizPicker'
-import { ANSWER_DELAY, FIRST_BONUS, MAX_PLAYERS, WRONG_PENALTY, newCode, peerId, type GuestMsg, type HostMsg, type LyricsPublicQuestion, type Player, type PublicQuestion, type RoundResult, type Settings, type Step } from './room'
+import { ANSWER_DELAY, FIRST_BONUS, MAX_PLAYERS, WRONG_PENALTY, newCode, peerId, type GuestMsg, type HostMsg, type LyricsPublicQuestion, type Player, type PublicQuestion, type RoundResult, type Settings, type Step, type TimedLine } from './room'
 import { enoughArtists, makeQuestions, MODE_LABEL, pointsFor } from './Quiz'
 import { SettingsPanel, type GameSettings } from './Settings'
 import { sfx } from './sfx'
@@ -200,7 +200,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
 
   // ---------- host: lyrics mode ----------
 
-  type LyricsQ = Question & { lines: string[] }
+  type LyricsQ = Question & { lines: TimedLine[]; synced: boolean; audioStart: number }
   const lyricsQuestions = useRef<LyricsQ[]>([])
   const lyricsBuzzer = useRef<string | null>(null)
   const lyricsWrongIds = useRef(new Set<number>())
@@ -215,7 +215,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     lyricsWrongIds.current = new Set()
     lyricsPenalties.current = new Map()
     clearInterval(lyricsLineTimer.current)
-    emit({ t: 'lq', q: { i, total: lyricsQuestions.current.length, preview: q.answer.preview, lines: q.lines, options: q.options.map(({ id, title, artist }) => ({ id, title, artist })) } })
+    emit({ t: 'lq', q: { i, total: lyricsQuestions.current.length, preview: q.answer.preview, lines: q.lines, synced: q.synced ?? false, audioStart: q.audioStart ?? 0, options: q.options.map(({ id, title, artist }) => ({ id, title, artist })) } })
     // auto-finish after all lines + grace
     clearTimeout(timer.current)
     timer.current = window.setTimeout(() => {
@@ -307,9 +307,10 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
       const results = await Promise.all(
         qs.map(async (qq) => {
           try {
-            const r = await fetch(`/api/lyrics?${new URLSearchParams({ title: qq.answer.title, artist: qq.answer.artist })}`)
+            const audioStart = 3 + Math.random() * 24
+            const r = await fetch(`/api/lyrics?${new URLSearchParams({ title: qq.answer.title, artist: qq.answer.artist, start: String(Math.round(audioStart)) })}`)
             const lj = await r.json()
-            if (lj.found && lj.lines?.length >= 4) return { ...qq, lines: lj.lines as string[] }
+            if (lj.found && lj.lines?.length >= 4) return { ...qq, lines: lj.lines, synced: !!lj.synced, audioStart }
           } catch {}
           return null
         }),
@@ -667,13 +668,28 @@ function RoomLyricsQuestion({ q, myId, buzzer, buzzerName, onBuzz, onAnswer }: {
     const a = new Audio(q.preview)
     audio.current = a
     a.addEventListener('playing', () => setStarted(true))
+    a.currentTime = q.audioStart || 0
     a.play().catch(() => setStarted(false))
     let lineCount = 1
-    const iv = window.setInterval(() => {
-      lineCount++
-      setRevealed(lineCount)
-      if (lineCount >= q.lines.length) clearInterval(iv)
-    }, LINE_INTERVAL * 1000)
+    let iv: number
+    if (q.synced && q.lines[0]?.time != null) {
+      const baseTime = q.lines[0].time!
+      iv = window.setInterval(() => {
+        if (!a.currentTime) return
+        let show = 1
+        for (let k = 0; k < q.lines.length; k++) {
+          if (q.lines[k].time != null && a.currentTime >= q.lines[k].time! - baseTime + (q.audioStart || 0)) show = k + 1
+        }
+        if (show !== lineCount) { lineCount = show; setRevealed(show) }
+        if (lineCount >= q.lines.length) clearInterval(iv)
+      }, 200)
+    } else {
+      iv = window.setInterval(() => {
+        lineCount++
+        setRevealed(lineCount)
+        if (lineCount >= q.lines.length) clearInterval(iv)
+      }, LINE_INTERVAL * 1000)
+    }
     return () => {
       clearInterval(iv)
       a.pause()
@@ -709,7 +725,7 @@ function RoomLyricsQuestion({ q, myId, buzzer, buzzerName, onBuzz, onAnswer }: {
       <div className="stage lyrics-stage">
         <div className="lyrics-snippet">
           {q.lines.slice(0, revealed).map((line, k) => (
-            <p key={k} className={k === revealed - 1 ? 'lyrics-new' : ''}>{line}</p>
+            <p key={k} className={k === revealed - 1 ? 'lyrics-new' : ''}>{line.text}</p>
           ))}
         </div>
         <Equalizer on={started} />

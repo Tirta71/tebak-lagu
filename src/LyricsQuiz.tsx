@@ -9,7 +9,8 @@ import { makeQuestions, comboFactor } from './Quiz'
 const LINE_INTERVAL = 2.5
 const WRONG_PENALTY = 200
 
-type LyricsQuestion = Question & { lines: string[] }
+type TimedLine = { time: number | null; text: string }
+type LyricsQuestion = Question & { lines: TimedLine[]; synced: boolean; audioStart: number }
 
 /** Points: the fewer lines revealed when you answer, the more you get. */
 function lyricsPoints(linesRevealed: number, totalLines: number, combo: number, rules: LevelRules) {
@@ -62,9 +63,10 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
         const results = await Promise.all(
           qs.map(async (q) => {
             try {
-              const r = await fetch(`/api/lyrics?${new URLSearchParams({ title: q.answer.title, artist: q.answer.artist })}`)
+              const audioStart = rules.randomStart ? 3 + Math.random() * Math.max(0, 24) : 0
+              const r = await fetch(`/api/lyrics?${new URLSearchParams({ title: q.answer.title, artist: q.answer.artist, start: String(Math.round(audioStart)) })}`)
               const lj = await r.json()
-              if (lj.found && lj.lines?.length >= 4) return { ...q, lines: lj.lines as string[] }
+              if (lj.found && lj.lines?.length >= 4) return { ...q, lines: lj.lines as TimedLine[], synced: !!lj.synced, audioStart }
             } catch {}
             return null
           }),
@@ -110,20 +112,37 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
       setStarted(true)
     }
     a.addEventListener('playing', onPlaying)
-    a.currentTime = rules.randomStart ? 3 + Math.random() * Math.max(0, 24) : 0
+    a.currentTime = q.audioStart
     a.play().catch(() => setStarted(false))
 
     const upcoming = questions?.[i + 1]
     nextAudio.current = upcoming?.answer.preview ? new Audio(upcoming.answer.preview) : null
     if (nextAudio.current) nextAudio.current.preload = 'auto'
 
-    // reveal lines gradually
+    // reveal lines: synced = based on audio time, plain = fixed interval
     let lineCount = 1
-    lineTimer.current = window.setInterval(() => {
-      lineCount++
-      setRevealed(lineCount)
-      if (lineCount >= q.lines.length) clearInterval(lineTimer.current)
-    }, LINE_INTERVAL * 1000)
+    if (q.synced && q.lines[0].time != null) {
+      const baseTime = q.lines[0].time
+      lineTimer.current = window.setInterval(() => {
+        if (!a.currentTime) return
+        const now = a.currentTime
+        let show = 1
+        for (let k = 0; k < q.lines.length; k++) {
+          if (q.lines[k].time != null && now >= q.lines[k].time - baseTime + q.audioStart) show = k + 1
+        }
+        if (show !== lineCount) {
+          lineCount = show
+          setRevealed(show)
+        }
+        if (lineCount >= q.lines.length) clearInterval(lineTimer.current)
+      }, 200)
+    } else {
+      lineTimer.current = window.setInterval(() => {
+        lineCount++
+        setRevealed(lineCount)
+        if (lineCount >= q.lines.length) clearInterval(lineTimer.current)
+      }, LINE_INTERVAL * 1000)
+    }
 
     return () => {
       a.removeEventListener('playing', onPlaying)
@@ -268,7 +287,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
           <>
             <div className="lyrics-snippet">
               {q.lines.slice(0, revealed).map((line, k) => (
-                <p key={k} className={k === revealed - 1 ? 'lyrics-new' : ''}>{line}</p>
+                <p key={k} className={k === revealed - 1 ? 'lyrics-new' : ''}>{line.text}</p>
               ))}
             </div>
             <Equalizer on={started && !silent} />
