@@ -280,23 +280,32 @@ export async function lyricsCandidates(query: string): Promise<{ name?: string; 
   return { name: j.name, songs }
 }
 
+/** How far loading has got: songs checked of all of them, and how many of those made a question (of `want`). */
+export type LoadProgress = { checked: number; total: number; found: number; want: number }
+
 /**
  * Questions from songs whose clip lines up with their lyrics, up to `want` of them, in random
  * order. Each is handed to `onReady` as soon as it's checked, so play can start before all are.
  */
-export async function loadSyncedQuestions(songs: Candidate[], want: number, onReady: (q: ReadyQuestion) => void, cancelled = () => false) {
+export async function loadSyncedQuestions(
+  songs: Candidate[],
+  want: number,
+  onReady: (q: ReadyQuestion) => void,
+  { cancelled = () => false, onProgress }: { cancelled?: () => boolean; onProgress?: (p: LoadProgress) => void } = {},
+) {
   const queue = shuffle(songs, Math.random)
   const ctx = new OfflineAudioContext(2, 1, 44100)
   const tries = new Map<Candidate, number>()
   let found = 0
+  let checked = 0
+  const report = () => onProgress?.({ checked, total: songs.length, found, want })
   const worker = async () => {
     while (found < want && queue.length && !cancelled()) {
       const next = queue.shift()!
       let song: Song | null = null
       try {
         song = 'id' in next ? next : await findOnDeezer(next)
-        if (!song) continue
-        const q = await prepare(song, ctx)
+        const q = song && (await prepare(song, ctx))
         if (q && found < want && !cancelled()) {
           found++
           onReady(q)
@@ -309,10 +318,14 @@ export async function loadSyncedQuestions(songs: Candidate[], want: number, onRe
           tries.set(again, n + 1)
           queue.push(again)
           await new Promise((r) => setTimeout(r, 1500))
+          continue
         }
       }
+      checked++
+      if (!cancelled()) report()
     }
   }
+  report()
   // most of the wait is the lyrics lookup, so several songs are checked at once
   await Promise.all(Array.from({ length: 10 }, worker))
   return found

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Peer, { type DataConnection } from 'peerjs'
-import { ArrowLeft, Check, ChevronRight, Copy, Crown, FileText, Hand, History, ListMusic, LogOut, Pencil, Play, RotateCcw, Settings2, Trophy, Users, Volume2, X, Zap } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Copy, Crown, Hand, History, ListMusic, LogOut, Pencil, Play, RotateCcw, Settings2, Trophy, Users, Volume2, X, Zap } from 'lucide-react'
 import { Bit, Equalizer } from './Bit'
 import { LEVELS } from './levels'
 import { AVATARS, saveProfile, type Profile } from './local'
@@ -9,8 +9,9 @@ import { ANSWER_DELAY, BUZZ_PENALTY, BUZZ_SECONDS, FIRST_BONUS, MAX_PLAYERS, WRO
 import { enoughArtists, makeQuestions, MODE_LABEL, pointsFor } from './Quiz'
 import { SettingsPanel, type GameSettings } from './Settings'
 import { sfx } from './sfx'
-import { cueAt, lineKey, loadSyncedQuestions, lyricsCandidates, type ReadyQuestion } from './lyricsSync'
+import { cueAt, lineKey, loadSyncedQuestions, lyricsCandidates, type LoadProgress, type ReadyQuestion } from './lyricsSync'
 import { LyricsCard } from './LyricsCard'
+import { Loading } from './Loading'
 import type { Mode, Question, QuizSource, Song } from './types'
 
 const PEER_CONFIG = { host: 'peer.allegiaant.net', port: 443, path: '/peer', secure: true }
@@ -24,6 +25,8 @@ const BUZZ_GRACE = 0.8
 type Phase = 'connecting' | 'lobby' | 'loading' | 'question' | 'reveal' | 'end' | 'error' | 'lyrics-q'
 /** A song that has been played: its answer and how everyone did. */
 type Round = { i: number; answer: Song; results: RoundResult[] }
+/** A song to play: guess its title or singer, or (Tebak Lirik) continue its lyrics. */
+type Turn = { kind: 'song'; q: Question } | { kind: 'lyrics'; q: ReadyQuestion }
 type View = {
   phase: Phase
   players: Player[]
@@ -35,13 +38,27 @@ type View = {
   reveal: { answer: Song; results: RoundResult[]; line?: string } | null
   history: Round[]
   error: string | null
+  /** While the songs are got ready: how many have been checked for lyrics. */
+  loading: LoadProgress | null
   // lyrics mode
   lq: LyricsPublicQuestion | null
   buzzer: string | null
   buzzerName: string | null
 }
 
-const blank: View = { phase: 'connecting', players: [], settings: null, step: 'atur', q: null, answered: [], reveal: null, history: [], error: null, lq: null, buzzer: null, buzzerName: null }
+const blank: View = { phase: 'connecting', players: [], settings: null, step: 'atur', q: null, answered: [], reveal: null, history: [], error: null, loading: null, lq: null, buzzer: null, buzzerName: null }
+
+/** `extra` mixed into `list`, one somewhere in each equal stretch of the game, so they don't bunch up. */
+function spread<T>(list: T[], extra: T[]) {
+  const out = [...list]
+  const n = list.length + extra.length
+  extra.forEach((x, k) => {
+    const from = Math.floor((k * n) / extra.length)
+    const to = Math.floor(((k + 1) * n) / extra.length)
+    out.splice(Math.min(out.length, from + Math.floor(Math.random() * (to - from))), 0, x)
+  })
+  return out
+}
 
 /** Everyone, highest score first. */
 const ranked = (players: Player[]) => [...players].sort((a, b) => b.score - a.score)
@@ -65,7 +82,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
   const settings = useRef<Settings>({ quiz: null, mode: initial.mode, level: initial.level, count: initial.count })
   const step = useRef<Step>('atur')
   const quiz = useRef<QuizSource | null>(null)
-  const questions = useRef<Question[]>([])
+  const turns = useRef<Turn[]>([])
   const current = useRef(-1)
   const answers = useRef(new Map<string, { id: number | null; seconds: number }>())
   const timer = useRef(0)
@@ -78,9 +95,10 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
         case 'lobby':
           return { ...v, phase: v.phase === 'connecting' || v.phase === 'end' ? 'lobby' : v.phase, players: m.players, settings: m.settings, step: m.step }
         case 'loading':
-          return { ...v, phase: 'loading', history: [] }
+          return { ...v, phase: 'loading', history: [], q: null, lq: null, loading: m.progress ?? null }
+        // a game can mix both kinds of song: only the one playing is kept
         case 'q':
-          return { ...v, phase: 'question', q: m.q, answered: [], reveal: null }
+          return { ...v, phase: 'question', q: m.q, lq: null, answered: [], reveal: null }
         case 'answered':
           return { ...v, answered: m.ids }
         case 'reveal':
@@ -97,7 +115,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
           return { ...v, phase: 'error', error: 'Room sudah penuh.' }
         // lyrics mode
         case 'lq':
-          return { ...v, phase: 'lyrics-q', lq: m.q, answered: [], buzzer: null, buzzerName: null }
+          return { ...v, phase: 'lyrics-q', lq: m.q, q: null, answered: [], buzzer: null, buzzerName: null }
         case 'lq-buzz-ok':
           return { ...v, buzzer: m.id, buzzerName: null }
         case 'lq-buzz-taken':
@@ -159,8 +177,9 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
   const finish = useCallback(() => {
     clearTimeout(timer.current)
     const i = current.current
-    const q = questions.current[i]
-    if (!q || !Number.isInteger(i)) return
+    const t = turns.current[i]
+    if (t?.kind !== 'song' || !Number.isInteger(i)) return
+    const q = t.q
     const rules = rulesOf()
     const right = [...answers.current.entries()].filter(([, a]) => a.id === q.answer.id).sort((a, b) => a[1].seconds - b[1].seconds)
     const firstId = right[0]?.[0]
@@ -180,12 +199,13 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
 
   const ask = useCallback(
     (i: number) => {
-      const q = questions.current[i]
+      const t = turns.current[i]
+      const q = t?.kind === 'song' ? t.q : null
       if (!q?.answer.preview) return
       current.current = i
       answers.current.clear()
       clearTimeout(timer.current)
-      emit({ t: 'q', q: { i, total: questions.current.length, kind: q.kind, preview: q.answer.preview, options: q.options.map(({ id, title, artist }) => ({ id, title, artist })) } })
+      emit({ t: 'q', q: { i, total: turns.current.length, kind: q.kind, preview: q.answer.preview, options: q.options.map(({ id, title, artist }) => ({ id, title, artist })) } })
       timer.current = window.setTimeout(finish, (ANSWER_DELAY + rulesOf().seconds + GRACE) * 1000)
     },
     [emit, finish],
@@ -205,8 +225,6 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
 
   // ---------- host: lyrics mode ----------
 
-  type LyricsQ = ReadyQuestion
-  const lyricsQuestions = useRef<LyricsQ[]>([])
   const lyricsBuzzer = useRef<string | null>(null)
   const lyricsWrongIds = useRef(new Set<number>())
   const lyricsLineTimer = useRef(0)
@@ -214,8 +232,14 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
   const lastEmittedLyricsQ = useRef<LyricsPublicQuestion | null>(null)
   const buzzTimer = useRef(0)
 
+  /** Song i's Tebak Lirik question, when it is one. */
+  const lyricsAt = (i: number) => {
+    const t = turns.current[i]
+    return t?.kind === 'lyrics' ? t.q : null
+  }
+
   const askLyrics = useCallback((i: number) => {
-    const q = lyricsQuestions.current[i]
+    const q = lyricsAt(i)
     if (!q?.song.preview) return
     current.current = i
     lyricsBuzzer.current = null
@@ -227,10 +251,10 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     const wrongs: string[] = []
     const take = (line: string) => { const k = lineKey(line); if (wrongs.length < 3 && !seen.has(k) && line.length > 5) { wrongs.push(line); seen.add(k) } }
     q.wrongs.forEach(take)
-    lyricsQuestions.current.forEach((oq, j) => { if (j !== i) [...oq.context, oq.answer].forEach(take) })
+    turns.current.forEach((t, j) => { if (j !== i && t.kind === 'lyrics') [...t.q.context, t.q.answer].forEach(take) })
     const opts = [{ text: q.answer, correct: true }, ...wrongs.map((t) => ({ text: t, correct: false }))]
     for (let k = opts.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [opts[k], opts[j]] = [opts[j], opts[k]] }
-    const lq: LyricsPublicQuestion = { i, total: lyricsQuestions.current.length, preview: q.song.preview, context: q.context, options: opts, from: q.from, cues: q.cues, stopAt: q.stopAt }
+    const lq: LyricsPublicQuestion = { i, total: turns.current.length, preview: q.song.preview, context: q.context, options: opts, from: q.from, cues: q.cues, stopAt: q.stopAt }
     lastEmittedLyricsQ.current = lq
     emit({ t: 'lq', q: lq })
     clearTimeout(timer.current)
@@ -241,7 +265,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     clearTimeout(timer.current)
     clearTimeout(buzzTimer.current)
     clearInterval(lyricsLineTimer.current)
-    const q = lyricsQuestions.current[qi]
+    const q = lyricsAt(qi)
     if (!q) return
     const results: RoundResult[] = [...players.current.values()].map((p) => {
       const pen = lyricsPenalties.current.get(p.id) ?? 0
@@ -279,7 +303,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
 
   const onLyricsAnswer = useCallback((from: string, qi: number, optIdx: number) => {
     if (qi !== Math.floor(current.current) || lyricsBuzzer.current !== from) return
-    const q = lyricsQuestions.current[Math.floor(qi)]
+    const q = lyricsAt(Math.floor(qi))
     if (!q) return
     // the guest sends the index of a choice; the host kept the shuffled choices it sent
     const emittedQ = lastEmittedLyricsQ.current
@@ -312,6 +336,9 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     }
   }, [emit])
 
+  /** Host: play song i, whichever kind it is. */
+  const play = useCallback((i: number) => (turns.current[i]?.kind === 'lyrics' ? askLyrics(i) : ask(i)), [ask, askLyrics])
+
   /** Host: load the chosen quiz's songs, shuffle the questions and play the first. */
   const begin = useCallback(async () => {
     const q = quiz.current
@@ -323,43 +350,57 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
       setStep('kuis')
     }
 
-    if (s.lyrics) {
-      // every song is a candidate (only some have lyrics that line up with their clip);
-      // guests play the clip from Deezer themselves
-      const { songs, error } = await lyricsCandidates(q.query)
-      if (error) return failed(error)
-      const withLyrics: LyricsQ[] = []
-      await loadSyncedQuestions(songs, s.count === 'all' ? songs.length : s.count, (q) => {
-        URL.revokeObjectURL(q.audioUrl)
-        withLyrics.push(q)
-      })
-      if (withLyrics.length < 4) return failed('Tidak cukup lagu yang liriknya pas dengan lagunya.')
+    const start = (list: Turn[]) => {
       for (const p of players.current.values()) p.score = 0
-      lyricsQuestions.current = withLyrics
+      turns.current = list
       setView((v) => ({ ...v, error: null }))
-      return askLyrics(0)
+      play(0)
+    }
+    /**
+     * Tebak Lirik questions, up to `want(songs)`: every song is a candidate (only some have lyrics
+     * that line up with their clip), and guests play the clip from Deezer themselves.
+     */
+    const lyrics = async (want: (songs: number) => number) => {
+      const { songs, error } = await lyricsCandidates(q.query)
+      const found: ReadyQuestion[] = []
+      if (error) return { found, error }
+      await loadSyncedQuestions(songs, want(songs.length), (rq) => {
+        URL.revokeObjectURL(rq.audioUrl)
+        found.push(rq)
+      }, { onProgress: (progress) => emit({ t: 'loading', progress }) })
+      return { found }
     }
 
-    const j = await fetch(`/api/quiz?${q.query}&want=${s.count}`)
-      .then((r) => r.json())
-      .catch(() => ({ error: 'Kuis tidak bisa dimuat.' }))
+    if (s.lyrics) {
+      const { found, error } = await lyrics((n) => (s.count === 'all' ? n : s.count))
+      if (error) return failed(error)
+      if (found.length < 4) return failed('Tidak cukup lagu yang liriknya pas dengan lagunya.')
+      return start(found.map((rq): Turn => ({ kind: 'lyrics', q: rq })))
+    }
+
+    // Acak: about a third of the songs are Tebak Lirik, the rest a title or a singer to guess
+    const mixed = s.mode === 'both'
+    const [j, withLyrics] = await Promise.all([
+      fetch(`/api/quiz?${q.query}&want=${s.count}`)
+        .then((r) => r.json())
+        .catch(() => ({ error: 'Kuis tidak bisa dimuat.' })),
+      mixed ? lyrics((n) => Math.round((s.count === 'all' ? n : s.count) / 3)).then((r) => r.found) : [],
+    ])
     if (j.error || !j.tracks) return failed(j.error ?? 'Kuis tidak bisa dimuat.')
-    const mode: Mode = q.key.startsWith('artist:') || !enoughArtists(j.tracks) ? 'title' : s.mode
-    const count = s.count === 'all' ? j.tracks.length : Math.min(s.count, j.tracks.length)
-    for (const p of players.current.values()) p.score = 0
-    questions.current = makeQuestions(j.tracks, mode, Math.random, LEVELS[s.level].sameArtist, count)
-    setView((v) => ({ ...v, error: null }))
-    ask(0)
-  }, [emit, ask, askLyrics, setStep])
+    // a song asked for its lyrics isn't asked again for its title
+    const taken = new Set(withLyrics.flatMap((x) => [String(x.song.id), lineKey(x.song.title)]))
+    const pool = (j.tracks as Song[]).filter((t) => !taken.has(String(t.id)) && !taken.has(lineKey(t.title)))
+    const mode: Mode = q.key.startsWith('artist:') || !enoughArtists(pool) ? 'title' : s.mode
+    const count = Math.min((s.count === 'all' ? j.tracks.length : s.count) - withLyrics.length, pool.length)
+    const songs = makeQuestions(pool, mode, Math.random, LEVELS[s.level].sameArtist, count).map((sq): Turn => ({ kind: 'song', q: sq }))
+    start(spread(songs, withLyrics.map((rq): Turn => ({ kind: 'lyrics', q: rq }))))
+  }, [emit, play, setStep])
 
   const nextSong = useCallback(() => {
     const i = Math.floor(current.current) + 1
-    const total = settings.current.lyrics ? lyricsQuestions.current.length : questions.current.length
-    if (i < total) {
-      if (settings.current.lyrics) askLyrics(i)
-      else ask(i)
-    } else emit({ t: 'end', players: [...players.current.values()] })
-  }, [ask, askLyrics, emit])
+    if (i < turns.current.length) play(i)
+    else emit({ t: 'end', players: [...players.current.values()] })
+  }, [play, emit])
 
   /** Host: after the podium, back to the lobby to play again (same people, maybe another quiz). */
   const backToLobby = useCallback(() => {
@@ -1103,7 +1144,7 @@ function Summary({ s }: { s: Settings }) {
         <small>Kuis</small>
         <b>{s.quiz ?? 'Belum dipilih'}</b>
         <span className="chips">
-          <i>{s.lyrics ? 'Tebak Lirik' : MODE_LABEL[s.mode]}</i>
+          <i>{s.lyrics ? 'Tebak Lirik' : s.mode === 'both' ? 'Judul / penyanyi / lirik acak' : MODE_LABEL[s.mode]}</i>
           <i className={`lv-${s.level}`}>{LEVELS[s.level].label}</i>
           <i>{s.count === 'all' ? 'Semua lagu' : `${s.count} lagu`}</i>
         </span>
@@ -1167,11 +1208,12 @@ function Room({ role, code, initial, profile, onProfile, onLeave, onRetry }: Par
       </section>
     )
 
-  if (view.phase === 'connecting' || view.phase === 'loading')
+  if (view.phase === 'loading') return <Loading title={view.loading ? 'Mencocokkan lirik dengan lagunya…' : 'Menyiapkan lagu-lagunya…'} progress={view.loading} />
+  if (view.phase === 'connecting')
     return (
       <section className="countdown">
         <Bit size={130} mood="listen" />
-        <p className="note">{view.phase === 'loading' ? 'Menyiapkan lagu-lagunya…' : host ? 'Membuka room…' : `Masuk ke room ${code.toUpperCase()}…`}</p>
+        <p className="note">{host ? 'Membuka room…' : `Masuk ke room ${code.toUpperCase()}…`}</p>
       </section>
     )
 
@@ -1220,17 +1262,14 @@ function Room({ role, code, initial, profile, onProfile, onLeave, onRetry }: Par
             <div className="lobby-main">
               {view.error && <p className="note error">{view.error}</p>}
               {host && view.step === 'atur' && (
-                <>
-                  <SettingsPanel settings={{ mode: s.mode, level: s.level, count: s.count }} setMode={(mode) => configure({ mode })} setLevel={(level) => configure({ level })} setCount={(count) => configure({ count })} hideMode={s.lyrics} />
-                  <label className={`toggle-row${s.lyrics ? ' active' : ''}`}>
-                    <FileText size={20} />
-                    <span>
-                      <b>Mode Tebak Lirik</b>
-                      <small>Dengarkan lagunya, angkat tangan, lanjutkan liriknya</small>
-                    </span>
-                    <input type="checkbox" role="switch" checked={!!s.lyrics} onChange={(e) => configure({ lyrics: e.target.checked })} />
-                  </label>
-                </>
+                <SettingsPanel
+                  settings={{ mode: s.mode, level: s.level, count: s.count }}
+                  setMode={(mode) => configure({ mode, lyrics: false })}
+                  setLevel={(level) => configure({ level })}
+                  setCount={(count) => configure({ count })}
+                  lyrics={!!s.lyrics}
+                  setLyrics={() => configure({ lyrics: true })}
+                />
               )}
               {host && view.step === 'kuis' && (
                 <div className="lobby-picker">
@@ -1245,7 +1284,7 @@ function Room({ role, code, initial, profile, onProfile, onLeave, onRetry }: Par
                   ) : (
                     <p className="note center-text">{view.step === 'main' ? 'Menunggu host memulai…' : 'Host sedang mengatur permainan…'}</p>
                   )}
-                  {!host && <SettingsPanel settings={{ mode: s.mode, level: s.level, count: s.count }} hideMode={s.lyrics} />}
+                  {!host && <SettingsPanel settings={{ mode: s.mode, level: s.level, count: s.count }} lyrics={!!s.lyrics} />}
                 </div>
               )}
             </div>

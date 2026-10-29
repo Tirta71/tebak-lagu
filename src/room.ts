@@ -5,6 +5,7 @@
  * and the host tells everyone the result.
  */
 import type { Level } from './levels'
+import type { LoadProgress } from './lyricsSync'
 import type { Count, Mode, Song } from './types'
 
 /** Peer ids are public on the shared server, so they carry a prefix of our own. */
@@ -24,7 +25,10 @@ export type PublicQuestion = { i: number; total: number; kind: 'title' | 'artist
 /** How one player did on a song: only the fastest right answer (`first`) scores; `right` is any right answer. */
 export type RoundResult = { id: string; picked: number | null; points: number; first: boolean; right: boolean; seconds: number | null }
 
-/** The room's set-up, as everyone sees it: the quiz (once picked), what to guess, how hard, how many. */
+/**
+ * The room's set-up, as everyone sees it: the quiz (once picked), what to guess, how hard, how many.
+ * `lyrics`: every song is Tebak Lirik; otherwise Acak (mode 'both') mixes some in.
+ */
 export type Settings = { quiz: string | null; picture?: string | null; mode: Mode; level: Level; count: Count; lyrics?: boolean }
 
 /** Where the host is in setting up: 1 settings, 2 picking a quiz, 3 ready to start. */
@@ -41,7 +45,8 @@ export type LyricsPublicQuestion = {
 /** Host → guests. */
 export type HostMsg =
   | { t: 'lobby'; players: Player[]; settings: Settings; step: Step }
-  | { t: 'loading' }
+  /** `progress`: while songs are checked for lyrics that line up with their clip. */
+  | { t: 'loading'; progress?: LoadProgress }
   | { t: 'q'; q: PublicQuestion }
   | { t: 'answered'; ids: string[] }
   | { t: 'reveal'; i: number; answer: Song; results: RoundResult[]; players: Player[]; line?: string }

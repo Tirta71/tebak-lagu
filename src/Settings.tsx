@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Mic2, Music, Shuffle } from 'lucide-react'
+import { FileText, Mic2, Music, Shuffle } from 'lucide-react'
 import { LEVELS, LEVEL_ORDER, type Level } from './levels'
 import type { Count, Mode } from './types'
 
@@ -37,28 +37,39 @@ export function useGameSettings() {
   }
 }
 
-/** The three rows of choices. Read-only (for guests in a room) when no setters are given. */
-export function SettingsPanel({ settings, setMode, setLevel, setCount, hideMode }: { settings: GameSettings; setMode?: (m: Mode) => void; setLevel?: (l: Level) => void; setCount?: (c: Count) => void; hideMode?: boolean }) {
+/**
+ * The three rows of choices. Read-only (for guests in a room) when no setters are given.
+ * `lyrics` (a room) adds Tebak Lirik as a fourth way to play, on when it's true.
+ */
+export function SettingsPanel({ settings, setMode, setLevel, setCount, hideMode, lyrics, setLyrics }: { settings: GameSettings; setMode?: (m: Mode) => void; setLevel?: (l: Level) => void; setCount?: (c: Count) => void; hideMode?: boolean; lyrics?: boolean; setLyrics?: () => void }) {
   const { mode, level, count } = settings
   const locked = !setMode
+  const withLyrics = lyrics !== undefined
   return (
     <section className={`settings${locked ? ' locked' : ''}`}>
       <div className="setting" hidden={hideMode}>
         <h3>Tebak apa?</h3>
-        <div className="seg modes-seg" role="radiogroup" aria-label="Mode permainan">
-          <button role="radio" aria-checked={mode === 'title'} disabled={locked} onClick={() => setMode?.('title')}>
+        <div className={`seg modes-seg${withLyrics ? ' four' : ''}`} role="radiogroup" aria-label="Mode permainan">
+          <button role="radio" aria-checked={!lyrics && mode === 'title'} disabled={locked} onClick={() => setMode?.('title')}>
             <Music size={18} />
             <b>Judul</b>
           </button>
-          <button role="radio" aria-checked={mode === 'artist'} disabled={locked} onClick={() => setMode?.('artist')}>
+          <button role="radio" aria-checked={!lyrics && mode === 'artist'} disabled={locked} onClick={() => setMode?.('artist')}>
             <Mic2 size={18} />
             <b>Penyanyi</b>
           </button>
-          <button role="radio" aria-checked={mode === 'both'} disabled={locked} onClick={() => setMode?.('both')}>
+          {withLyrics && (
+            <button role="radio" aria-checked={lyrics} disabled={locked} onClick={setLyrics}>
+              <FileText size={18} />
+              <b>Lirik</b>
+            </button>
+          )}
+          <button role="radio" aria-checked={!lyrics && mode === 'both'} disabled={locked} onClick={() => setMode?.('both')}>
             <Shuffle size={18} />
             <b>Acak</b>
           </button>
         </div>
+        {withLyrics && !lyrics && mode === 'both' && <p className="setting-hint">Acak: kadang judul, kadang penyanyi, kadang lanjutkan liriknya.</p>}
       </div>
       <div className="setting">
         <h3>Tingkat kesulitan</h3>

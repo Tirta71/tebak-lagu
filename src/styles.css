@@ -407,6 +407,23 @@ h2 {
   grid-template-columns: repeat(3, 1fr);
 }
 
+/* a room adds Lirik: four cells, the icon above the word so each still fits */
+.seg.modes-seg.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.modes-seg.four button {
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 6px;
+}
+
+.setting-hint {
+  margin-top: 8px;
+  color: var(--ink-muted);
+  font-size: 12.5px;
+}
+
 .seg.levels {
   grid-template-columns: repeat(4, 1fr);
 }
@@ -1208,12 +1225,58 @@ h2 {
   white-space: normal;
 }
 
-/* the loading bar while songs are checked */
+/* ---------- getting the songs ready: a card that counts them ---------- */
+.loading-card {
+  display: grid;
+  width: min(340px, 100%);
+  justify-items: center;
+  gap: 12px;
+  margin: 6px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--surface) 60%, var(--bg)));
+  padding: 18px 20px;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.25);
+}
+
+.loading-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.loading-count {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.loading-count > span {
+  color: var(--ink-muted);
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.loading-count b {
+  background: linear-gradient(90deg, #9d8cff, #ff8ab4);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: 52px;
+}
+
+.loading-count small {
+  color: var(--ink-muted);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .load-bar {
-  width: min(240px, 70%);
-  height: 8px;
+  width: 100%;
+  height: 10px;
   overflow: hidden;
-  margin-bottom: 10px;
   border-radius: 999px;
   background: var(--surface-2);
 }
@@ -1222,9 +1285,65 @@ h2 {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #3fd6c6, #8b8cff);
+  background: linear-gradient(90deg, #3fd6c6, #8b8cff, #3fd6c6) 0 0 / 200% 100%;
   transform-origin: left;
   transition: transform 0.4s ease;
+  animation: load-flow 1.6s linear infinite;
+}
+
+/* nothing to count (one request): a piece of the bar keeps sliding across */
+.load-bar.busy span {
+  width: 35%;
+  animation: load-flow 1.6s linear infinite, load-slide 1.3s ease-in-out infinite alternate;
+}
+
+@keyframes load-flow {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes load-slide {
+  from {
+    transform: translateX(-20%);
+  }
+  to {
+    transform: translateX(206%);
+  }
+}
+
+.loading-stats {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.loading-stats .fit {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  background: rgb(63 214 198 / 0.12);
+  padding: 4px 10px;
+  color: #3fd6c6;
+  font-weight: 700;
+}
+
+.loading-hint {
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .load-bar span,
+  .load-bar.busy span {
+    animation: none;
+  }
 }
 
 /* "next" stays in reach at the bottom of a phone screen */
@@ -1325,84 +1444,6 @@ h2 {
 }
 .buzz-clock.hurry i {
   background: var(--bad);
-}
-
-/* a room's Tebak Lirik switch: a card that lights up when on */
-.toggle-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: var(--surface);
-  padding: 14px 16px;
-  color: var(--ink-muted);
-  cursor: pointer;
-  transition: border-color 0.2s, background-color 0.2s;
-}
-
-.toggle-row > svg {
-  flex: none;
-}
-
-.toggle-row span {
-  display: grid;
-  min-width: 0;
-  flex: 1;
-  gap: 2px;
-}
-
-.toggle-row b {
-  font-size: 15px;
-  color: var(--ink);
-}
-
-.toggle-row small {
-  font-size: 12.5px;
-}
-
-.toggle-row.active {
-  border-color: rgb(63 214 198 / 0.5);
-  background: rgb(63 214 198 / 0.08);
-  color: #3fd6c6;
-}
-
-.toggle-row input {
-  position: relative;
-  width: 46px;
-  height: 26px;
-  flex: none;
-  appearance: none;
-  border-radius: 999px;
-  background: var(--surface-2);
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.toggle-row input::after {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--ink-muted);
-  content: '';
-  transition: transform 0.2s, background-color 0.2s;
-}
-
-.toggle-row input:checked {
-  background: #1f8f73;
-}
-
-.toggle-row input:checked::after {
-  background: #fff;
-  transform: translateX(20px);
-}
-
-.toggle-row input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
 }
 
 .eq {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRight, Check, Flame, Plus, Scissors, Volume2, VolumeX, X } from 'lucide-react'
 import { norm } from '../api/_match.js'
 import { Bit, Equalizer } from './Bit'
+import { Loading } from './Loading'
 import { shuffle, type Rng } from './random'
 import { isMuted, setMuted, sfx } from './sfx'
 import { LEVELS, type LevelRules } from './levels'
@@ -222,25 +223,15 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
         </button>
       </section>
     )
-  if (!questions || count > 0)
+  if (!questions) return <Loading title={`Menyiapkan ${name}…`} onCancel={onQuit} />
+  if (count > 0)
     return (
       <section className="countdown">
         <Bit size={140} mood="listen" />
-        {questions ? (
-          <>
-            <span key={count} className="count-num">
-              {count}
-            </span>
-            <p>{mode === 'artist' ? 'Tebak penyanyinya!' : mode === 'both' ? 'Kadang judul, kadang penyanyi!' : 'Tebak judulnya!'}</p>
-          </>
-        ) : (
-          <>
-            <p className="note">Menyiapkan {name}…</p>
-            <button className="ghost small" onClick={onQuit}>
-              <X size={14} /> Batal
-            </button>
-          </>
-        )}
+        <span key={count} className="count-num">
+          {count}
+        </span>
+        <p>{mode === 'artist' ? 'Tebak penyanyinya!' : mode === 'both' ? 'Kadang judul, kadang penyanyi!' : 'Tebak judulnya!'}</p>
       </section>
     )
   if (!q) return null

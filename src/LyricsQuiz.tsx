@@ -6,8 +6,9 @@ import { Bit, Equalizer } from './Bit'
 import type { Answer, Mode, QuizSource } from './types'
 import { comboFactor } from './Quiz'
 import { shuffle } from './random'
-import { cueAt, lineKey, loadSyncedQuestions, lyricsCandidates, type ReadyQuestion } from './lyricsSync'
+import { cueAt, lineKey, loadSyncedQuestions, lyricsCandidates, type LoadProgress, type ReadyQuestion } from './lyricsSync'
 import { LyricsCard } from './LyricsCard'
+import { Loading } from './Loading'
 
 const WRONG_PENALTY = 200
 /** Start playing once this many songs are ready; the rest load while you play. */
@@ -55,6 +56,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
   const [started, setStarted] = useState(false)
   const [blocked, setBlocked] = useState(false)
   const [wanted, setWanted] = useState(0)
+  const [loaded, setLoaded] = useState<LoadProgress | null>(null)
   const audio = useRef<HTMLAudioElement | null>(null)
   const urls = useRef<string[]>([])
   const chooseTimer = useRef(0)
@@ -80,7 +82,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
             urls.current.push(rq.audioUrl)
             setQuestions((prev) => [...prev, { ...rq, options: buildOptions({ ...rq, options: [] }, prev) }])
           },
-          () => !alive,
+          { cancelled: () => !alive, onProgress: setLoaded },
         )
         if (!alive) return
         setLoadingDone(true)
@@ -270,26 +272,14 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
         <button className="primary" onClick={onQuit}>Kembali</button>
       </section>
     )
-  if (!canStart || count > 0)
+  if (!canStart)
+    return <Loading title={loaded ? 'Mencocokkan lirik dengan lagunya…' : `Menyiapkan ${name}…`} progress={loaded} need={Math.min(START_AFTER, wanted)} onCancel={onQuit} />
+  if (count > 0)
     return (
       <section className="countdown">
         <Bit size={140} mood="listen" />
-        {canStart ? (
-          <>
-            <span key={count} className="count-num">{count}</span>
-            <p>Dengarkan lagu, lanjutkan liriknya!</p>
-          </>
-        ) : (
-          <>
-            <p className="note">{wanted ? 'Mencocokkan lirik dengan lagunya...' : `Menyiapkan ${name}...`}</p>
-            <div className="load-bar" aria-hidden>
-              <span style={{ transform: `scaleX(${wanted ? Math.min(1, questions.length / Math.min(START_AFTER, wanted)) : 0})` }} />
-            </div>
-            <button className="ghost small" onClick={onQuit}>
-              <X size={14} /> Batal
-            </button>
-          </>
-        )}
+        <span key={count} className="count-num">{count}</span>
+        <p>Dengarkan lagu, lanjutkan liriknya!</p>
       </section>
     )
   if (!q) return null
