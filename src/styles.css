@@ -433,16 +433,7 @@ h2 {
   padding: 18px;
 }
 
-@media (min-width: 820px) {
-  .settings {
-    grid-template-columns: 0.9fr 1.4fr;
-  }
 
-  /* the song count spans the width under the other two */
-  .settings .setting:last-child {
-    grid-column: 1 / -1;
-  }
-}
 
 .setting {
   display: grid;
@@ -481,7 +472,6 @@ h2 {
 
 .counts button {
   --lv: #8b8cff;
-  min-height: 62px;
   font-size: 15px;
 }
 
@@ -492,6 +482,7 @@ h2 {
 }
 
 .seg button {
+  min-height: 64px;
   border: 1px solid transparent;
   border-radius: 12px;
   color: var(--ink-muted);
@@ -511,11 +502,10 @@ h2 {
 
 .modes-seg button {
   display: flex;
-  min-height: 62px;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 8px;
+  white-space: nowrap;
   padding: 10px 12px;
 }
 
@@ -548,9 +538,11 @@ h2 {
 
 .levels .lv {
   display: grid;
+  align-content: center;
   justify-items: center;
-  gap: 5px;
-  padding: 10px 6px;
+  gap: 4px;
+  padding: 8px 6px;
+  white-space: nowrap;
 }
 
 .levels b {

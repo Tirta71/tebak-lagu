@@ -48,7 +48,7 @@ export function SettingsPanel({ settings, setMode, setLevel, setCount }: { setti
         <div className="seg modes-seg" role="radiogroup" aria-label="Mode permainan">
           <button role="radio" aria-checked={mode === 'title'} disabled={locked} onClick={() => setMode?.('title')}>
             <Music size={18} />
-            <b>Judul lagu</b>
+            <b>Judul</b>
           </button>
           <button role="radio" aria-checked={mode === 'artist'} disabled={locked} onClick={() => setMode?.('artist')}>
             <Mic2 size={18} />
