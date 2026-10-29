@@ -2295,7 +2295,8 @@ a.lyrics-note:hover {
 
 @media (min-width: 820px) {
   .play-grid {
-    grid-template-columns: 300px 1fr;
+    grid-template-columns: 280px 1fr;
+    gap: 24px;
     align-items: start;
   }
 
@@ -2314,11 +2315,13 @@ a.lyrics-note:hover {
 .board {
   display: grid;
   align-content: start;
+  min-width: 0;
   gap: 12px;
   border: 1px solid var(--line);
   border-radius: 22px;
   background: var(--surface);
   padding: 14px;
+  overflow: hidden;
 }
 
 .board-tabs {
