@@ -1,0 +1,8 @@
+export type Song = { id: number; title: string; artist: string; cover: string | null; preview?: string; link: string }
+
+/** Which songs a quiz uses; `key` names it for best scores. */
+export type QuizSource = { key: string; name: string; query: string; picture?: string | null }
+
+export type Question = { answer: Song; options: Song[] }
+
+export type Answer = { question: Question; picked: Song | null; points: number; seconds: number }

@@ -1,25 +1,23 @@
 # Tebak Lagu
 
-Game tebak lagu ala Heardle: dengar potongan lagu dari playlist Spotify, lalu tebak judulnya.
-Mulai dari 15 detik; setiap kali dilewati atau salah, potongannya makin panjang (18, 21, 24, 27,
-lalu 30 detik penuh). Ubah panjangnya di `CLIPS` pada `src/App.tsx`. Enam kesempatan; makin cepat benar, makin banyak poin (100, 80, 60, 40, 25, 10). Skor
-terbaik tersimpan di browser.
+Kuis tebak lagu: pilih kuis, lalu 10 lagu diputar satu per satu. Untuk tiap lagu, pilih judulnya
+dari 4 pilihan dalam 15 detik. Makin cepat benar, makin besar poinnya (1000 kalau langsung, turun
+sampai 300 di detik terakhir). Di akhir ada skor, jumlah benar, rekap 10 lagu (dengan tautan Spotify
+dan lirik), dan skor terbaik per kuis yang tersimpan di browser.
 
-- Daftar lagu: playlist Spotify publik mana pun (default **Petro Jam**). Tempel link playlist lain di
-  bawah kartu untuk ganti.
-- Audio: cuplikan 30 detik resmi dari Deezer (gratis, tanpa login, tanpa API key). Lagu yang tidak
-  punya cuplikan di Deezer dilewati otomatis.
-- Setelah ronde selesai: **lirik** lagunya tampil di kartu jawaban lewat embed resmi Genius (lihat
-  di bawah). Tanpa token, atau kalau lagunya tidak ada di Genius, yang muncul tautan lirik ke
-  Spotify dan Genius.
-- Tebakan: kotak pencarian lagu dari Deezer. Judul dibandingkan longgar ("feat.", versi, aksen, dan
-  tanda baca tidak dihitung).
+- **Kuis:** Pilihan Tirta (playlist Petro Jam, Hits Indonesia), playlist Spotify mana pun (tempel
+  link), artis (daftar pilihan + cari artis apa saja), genre, dan dekade (70an sampai 2020an).
+- **Profil:** avatar dan nama panggilan, tersimpan di browser.
+- **Main bareng teman:** belum ada (butuh layanan real-time, misalnya Supabase).
+- Audio dari cuplikan 30 detik resmi Deezer (gratis, tanpa key). Lagu tanpa cuplikan dilewati.
 
-React + Vite. Dua fungsi server kecil di `api/` (Vercel), karena Spotify dan Deezer tidak bisa
-dipanggil langsung dari browser:
+Fungsi server di `api/` (Vercel):
 
-- `api/playlist.js`: membaca daftar lagu dari halaman embed playlist Spotify (100 lagu pertama).
-- `api/deezer.js`: mencari cuplikan lagu dan saran tebakan.
+- `api/catalog.js`: artis pilihan, genre, dekade, dan pencarian artis (Deezer).
+- `api/quiz.js`: lagu untuk satu kuis (chart genre, lagu teratas artis, playlist editor per dekade,
+  atau playlist Spotify yang dicocokkan ke Deezer).
+- `api/playlist.js`: daftar lagu dari playlist Spotify publik.
+- `api/deezer.js`: mencocokkan satu lagu ke Deezer.
 - `api/genius.js`: mencari lagu di Genius untuk embed liriknya (butuh access token gratis).
 
 ## Lirik (Genius)
