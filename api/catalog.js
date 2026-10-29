@@ -10,6 +10,17 @@ export const DECADES = [1970, 1980, 1990, 2000, 2010, 2020]
 
 const artist = (a) => ({ id: a.id, name: a.name, picture: a.picture_medium, fans: a.nb_fan })
 
+/**
+ * Some artists' pictures are a plain grey stand-in (each with its own address, so the address alone
+ * doesn't tell). A plain picture is a tiny file, a photo isn't: under 3.5 KB counts as no picture.
+ */
+async function withRealPicture(a) {
+  if (!a.picture) return a
+  const res = await fetch(a.picture).catch(() => null)
+  const size = res?.ok ? (await res.arrayBuffer()).byteLength : 0
+  return size >= 3500 ? a : { ...a, picture: null }
+}
+
 async function findArtist(name) {
   const { data = [] } = await deezer(`/search/artist?${new URLSearchParams({ q: name })}`)
   return data.find((a) => norm(a.name) === norm(name)) ?? data[0] ?? null
@@ -20,12 +31,12 @@ export async function GET(request) {
   try {
     if (q) {
       const { data = [] } = await deezer(`/search/artist?${new URLSearchParams({ q, limit: '8' })}`)
-      return json({ artists: data.map(artist) }, 's-maxage=86400')
+      return json({ artists: await Promise.all(data.map(artist).map(withRealPicture)) }, 's-maxage=86400')
     }
     const [genres, ...found] = await Promise.all([deezer('/genre'), ...FEATURED.map(findArtist)])
     return json(
       {
-        artists: found.filter(Boolean).map(artist),
+        artists: await Promise.all(found.filter(Boolean).map(artist).map(withRealPicture)),
         genres: genres.data.filter((g) => !SKIP_GENRES.has(g.id)).map((g) => ({ id: g.id, name: g.name, picture: g.picture_medium })),
         decades: DECADES,
       },

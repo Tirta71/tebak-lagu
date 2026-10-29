@@ -12,7 +12,7 @@ const PETRO_JAM = 'https://open.spotify.com/playlist/16iEQxHem0W1B5Di8jCpjH'
 
 /** A quiz to pick: a picture card (or a coloured one), its name over a shade at the bottom. */
 function Tile({ name, sub, picture, round, tint, onPick }: { name: string; sub?: string; picture?: string | null; round?: boolean; tint?: string; onPick: () => void }) {
-  // Deezer's grey stand-in for artists without a photo ("…/images/artist//…"): use a coloured card
+  // Deezer's stand-in for artists without a photo ("…/images/artist//…"): use a coloured card
   if (picture?.includes('/artist//')) picture = null
   if (round && !picture) tint ??= 'linear-gradient(150deg,#9d8cff,#ff8ab4)'
   return (
