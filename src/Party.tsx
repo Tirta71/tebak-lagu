@@ -592,26 +592,35 @@ function Board({ players, answered, results, history, me }: { players: Player[];
         <ol className="board-list">
           {ranked(players).map((p, k) => {
             const r = results?.find((x) => x.id === p.id)
+            const tag = r ? (
+              r.points > 0 ? (
+                <em className="gain">
+                  +{r.points}
+                  {r.first && <Zap size={11} />}
+                </em>
+              ) : r.points < 0 ? (
+                <em className="miss">{r.points}</em>
+              ) : r.right ? (
+                <em className="late">telat</em>
+              ) : null
+            ) : answered.includes(p.id) ? (
+              <em className="answered">
+                <Check size={12} /> sudah jawab
+              </em>
+            ) : null
             return (
               <li key={p.id} className={p.id === me ? 'mine' : ''}>
                 <span className="place">{k + 1}</span>
                 <span className="sb-avatar">{p.avatar}</span>
-                <b>{p.name}</b>
-                {p.id === me && <small className="you">kamu</small>}
-                {r ? (
-                  r.points > 0 ? (
-                    <em className="gain">
-                      +{r.points}
-                      {r.first && <Zap size={12} />}
-                    </em>
-                  ) : r.points < 0 ? (
-                    <em className="miss">{r.points}</em>
-                  ) : r.right ? (
-                    <em className="late">telat</em>
-                  ) : null
-                ) : (
-                  answered.includes(p.id) && <Check size={15} className="answered" aria-label="sudah menjawab" />
-                )}
+                <span className="who">
+                  <b>{p.name}</b>
+                  {(p.id === me || tag) && (
+                    <span className="meta">
+                      {p.id === me && <small className="you">kamu</small>}
+                      {tag}
+                    </span>
+                  )}
+                </span>
                 <span className="sb-score">{p.score}</span>
               </li>
             )

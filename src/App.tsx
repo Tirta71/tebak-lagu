@@ -67,17 +67,6 @@ export function App() {
         {screen.at === 'quiz' && <Quiz key={screen.run} source={screen.source} onQuit={home} onDone={(answers, name, mode) => setScreen({ at: 'result', source: screen.source, name, answers, mode })} />}
         {screen.at === 'result' && <Result source={screen.source} name={screen.name} answers={screen.answers} mode={screen.mode} profile={profile} onAgain={() => start(screen.source)} onHome={home} />}
       </main>
-
-      <footer className="foot">
-        Cuplikan lagu dari{' '}
-        <a href="https://www.deezer.com" target="_blank" rel="noreferrer">
-          Deezer
-        </a>{' '}
-        · lirik dari{' '}
-        <a href="https://genius.com" target="_blank" rel="noreferrer">
-          Genius
-        </a>
-      </footer>
     </div>
   )
 }

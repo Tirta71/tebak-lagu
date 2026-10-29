@@ -1699,7 +1699,6 @@ a.lyrics-note:hover {
 .reveal-room {
   display: grid;
   gap: 16px;
-  justify-items: center;
 }
 
 .reveal-room .now-playing {
@@ -2254,20 +2253,6 @@ a.lyrics-note:hover {
   gap: 10px;
 }
 
-/* ---------- footer ---------- */
-
-.foot {
-  margin-top: auto;
-  padding-top: 12px;
-  font-size: 12px;
-  text-align: center;
-  color: var(--ink-muted);
-}
-
-.foot a {
-  color: var(--ink);
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -2313,6 +2298,7 @@ a.lyrics-note:hover {
 
 .board {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   min-width: 0;
   gap: 12px;
@@ -2350,6 +2336,7 @@ a.lyrics-note:hover {
 
 .board-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   list-style: none;
 }
@@ -2378,18 +2365,47 @@ a.lyrics-note:hover {
   white-space: nowrap;
 }
 
+.board-list .place,
+.board-list .sb-score {
+  flex: none;
+}
+
+.who {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.who .meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.who .meta em {
+  font-size: 11.5px;
+}
+
 .board-list .you {
-  border-radius: 6px;
+  border-radius: 5px;
   background: #ffcf5c;
-  padding: 1px 6px;
-  font-size: 10.5px;
+  padding: 0 5px;
+  font-size: 9.5px;
   font-weight: 800;
+  line-height: 1.6;
   text-transform: uppercase;
   color: #1b1600;
 }
 
 .board-list .answered {
-  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-style: normal;
+  font-weight: 700;
   color: var(--good);
 }
 
