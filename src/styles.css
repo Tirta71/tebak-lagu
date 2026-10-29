@@ -2560,3 +2560,36 @@ a.lyrics-note:hover {
   border-color: #ffcf5c;
   color: #ffcf5c;
 }
+
+/* a room's song: everyone listens for 3 seconds before the choices open */
+.answer-lock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.answer-lock b {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 50%;
+  background: #ffcf5c;
+  font-size: 20px;
+  color: #1b1600;
+  box-shadow: 0 0 18px rgb(255 207 92 / 0.45);
+  animation: count 0.6s ease-out both;
+}
+
+.option.locked {
+  opacity: 0.45;
+  filter: saturate(0.6);
+}
+
+.winner .wrong-note {
+  color: var(--bad);
+}

@@ -5,7 +5,7 @@ import { Bit, Equalizer } from './Bit'
 import { LEVELS } from './levels'
 import { AVATARS, saveProfile, type Profile } from './local'
 import { QuizPicker } from './QuizPicker'
-import { FIRST_BONUS, MAX_PLAYERS, newCode, peerId, type GuestMsg, type HostMsg, type Player, type PublicQuestion, type RoundResult, type Settings, type Step } from './room'
+import { ANSWER_DELAY, FIRST_BONUS, MAX_PLAYERS, WRONG_PENALTY, newCode, peerId, type GuestMsg, type HostMsg, type Player, type PublicQuestion, type RoundResult, type Settings, type Step } from './room'
 import { enoughArtists, makeQuestions, MODE_LABEL, pointsFor } from './Quiz'
 import { SettingsPanel, type GameSettings } from './Settings'
 import { sfx } from './sfx'
@@ -39,8 +39,8 @@ const ranked = (players: Player[]) => [...players].sort((a, b) => b.score - a.sc
 /**
  * A room. The host's browser runs it: it opens the room at once, sets it up (settings, then a quiz)
  * while friends join, loads the songs, sends each one to the guests, collects the answers, scores
- * them (only the fastest right answer scores: points for speed plus a bonus) and sends the
- * results. Guests show what the host sends and answer.
+ * them (only the fastest right answer scores: points for speed plus a bonus; a wrong pick loses
+ * points) and sends the results. Guests show what the host sends and answer.
  */
 function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: GameSettings) {
   const [view, setView] = useState<View>(blank)
@@ -142,8 +142,10 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     const results: RoundResult[] = [...players.current.values()].map((p) => {
       const a = answers.current.get(p.id)
       const ok = a?.id === q.answer.id
-      // the song goes to whoever was right fastest; the others who were right get nothing
-      const points = p.id === firstId ? pointsFor(Math.max(0, rules.seconds - a!.seconds), 0, rules) + Math.round(FIRST_BONUS * rules.factor) : 0
+      // the song goes to whoever was right fastest; the others who were right get nothing, and a
+      // wrong pick costs points (running out of time doesn't)
+      const wrong = a !== undefined && a.id !== null && !ok
+      const points = p.id === firstId ? pointsFor(Math.max(0, rules.seconds - a!.seconds), 0, rules) + Math.round(FIRST_BONUS * rules.factor) : wrong ? -WRONG_PENALTY : 0
       p.score += points
       return { id: p.id, picked: a?.id ?? null, points, first: p.id === firstId, right: ok, seconds: a ? a.seconds : null }
     })
@@ -159,7 +161,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
       answers.current.clear()
       clearTimeout(timer.current)
       emit({ t: 'q', q: { i, total: questions.current.length, kind: q.kind, preview: q.answer.preview, options: q.options.map(({ id, title, artist }) => ({ id, title, artist })) } })
-      timer.current = window.setTimeout(finish, (rulesOf().seconds + GRACE) * 1000)
+      timer.current = window.setTimeout(finish, (ANSWER_DELAY + rulesOf().seconds + GRACE) * 1000)
     },
     [emit, finish],
   )
@@ -367,8 +369,11 @@ function RoomQuestion({ q, settings, answered, players, onAnswer }: { q: PublicQ
   const [left, setLeft] = useState(rules.seconds)
   const [started, setStarted] = useState(false)
   const [picked, setPicked] = useState<number | null | undefined>(undefined)
+  // seconds until the choices open; the clock for answering starts after that
+  const [wait, setWait] = useState(ANSWER_DELAY)
   const audio = useRef<HTMLAudioElement | null>(null)
   const startedAt = useRef(0)
+  const open = useRef(false)
   const done = useRef(false)
   // the room re-renders whenever someone answers; keep the song and its clock out of that
   const report = useRef(onAnswer)
@@ -376,11 +381,11 @@ function RoomQuestion({ q, settings, answered, players, onAnswer }: { q: PublicQ
 
   const pick = useCallback(
     (id: number | null) => {
-      if (done.current) return
+      if (done.current || !open.current) return
       done.current = true
       setPicked(id)
-      const seconds = startedAt.current ? (performance.now() - startedAt.current) / 1000 : rules.seconds
-      report.current(id, Math.min(seconds, rules.seconds))
+      const seconds = (performance.now() - startedAt.current) / 1000 - ANSWER_DELAY
+      report.current(id, Math.min(Math.max(0, seconds), rules.seconds))
     },
     [rules.seconds],
   )
@@ -391,14 +396,32 @@ function RoomQuestion({ q, settings, answered, players, onAnswer }: { q: PublicQ
     const span = rules.listen ?? rules.seconds
     a.currentTime = rules.randomStart ? 3 + Math.random() * Math.max(0, 30 - span - 6) : 0
     let raf = 0
+    let shown = ANSWER_DELAY
     const onPlaying = () => {
       if (startedAt.current) return
       startedAt.current = performance.now()
       setStarted(true)
+      sfx.count()
       const tick = () => {
         const elapsed = (performance.now() - startedAt.current) / 1000
         if (rules.listen && elapsed >= rules.listen) a.pause()
-        const l = rules.seconds - elapsed
+        // everyone listens first: 3, 2, 1 with a beep each, a higher one when the choices open
+        const locked = ANSWER_DELAY - elapsed
+        if (locked > 0) {
+          if (Math.ceil(locked) !== shown) {
+            shown = Math.ceil(locked)
+            setWait(shown)
+            sfx.count()
+          }
+          raf = requestAnimationFrame(tick)
+          return
+        }
+        if (!open.current) {
+          open.current = true
+          setWait(0)
+          sfx.count(true)
+        }
+        const l = rules.seconds - (elapsed - ANSWER_DELAY)
         setLeft(Math.max(0, l))
         if (l <= 0) return pick(null)
         raf = requestAnimationFrame(tick)
@@ -438,6 +461,11 @@ function RoomQuestion({ q, settings, answered, players, onAnswer }: { q: PublicQ
           <Volume2 size={14} /> Putar lagunya
         </button>
       )}
+      {started && wait > 0 && (
+        <p className="answer-lock" aria-live="polite">
+          Dengarkan dulu… <b key={wait}>{wait}</b>
+        </p>
+      )}
       {/* who has answered so far */}
       <div className="who-answered">
         {players.map((p) => (
@@ -448,7 +476,7 @@ function RoomQuestion({ q, settings, answered, players, onAnswer }: { q: PublicQ
       </div>
       <div className="options">
         {q.options.map((o, k) => (
-          <button key={o.id} className={`option c${k}${picked === o.id ? ' chosen' : picked !== undefined ? ' dim' : ''}`} disabled={picked !== undefined} onClick={() => pick(o.id)}>
+          <button key={o.id} className={`option c${k}${picked === o.id ? ' chosen' : picked !== undefined ? ' dim' : wait > 0 ? ' locked' : ''}`} disabled={picked !== undefined || wait > 0} onClick={() => pick(o.id)}>
             <kbd>{'ABCD'[k]}</kbd>
             <span>
               <b>{q.kind === 'artist' ? o.artist : o.title}</b>
@@ -473,13 +501,13 @@ function Scoreboard({ players, results, myId }: { players: Player[]; results?: R
             <span className="sb-avatar">{p.avatar}</span>
             <b>{p.name}</b>
             {r &&
-              (r.points ? (
+              (r.points > 0 ? (
                 <em className="gain">
                   +{r.points}
                   {r.first && <Zap size={12} />}
                 </em>
               ) : (
-                <em className="miss">{r.picked === null ? 'waktu habis' : 'salah'}</em>
+                <em className="miss">{r.picked === null ? 'waktu habis' : r.points < 0 ? r.points : 'salah'}</em>
               ))}
             <span className="sb-score">{p.score}</span>
           </li>
@@ -513,6 +541,7 @@ function Winner({ reveal, players, me }: { reveal: { results: RoundResult[] }; p
           <small>{mine?.picked === null ? 'Waktunya habis.' : 'Semua pilihan meleset.'}</small>
         </span>
       )}
+      {mine && mine.points < 0 && <small className="late-note wrong-note">Pilihanmu salah: {mine.points} poin</small>}
       {mine?.right && !mine.first && <small className="late-note">Kamu juga benar, tapi kalah cepat {mine.seconds !== null && first?.seconds != null && `(${(mine.seconds - first.seconds).toFixed(1)} dtk)`}</small>}
     </div>
   )
@@ -531,7 +560,7 @@ function SongDots({ total, at, live, history, me }: { total: number; at: number;
       {Array.from({ length: to - from }, (_, k) => {
         const i = from + k
         const mine = history.find((h) => h.i === i)?.results.find((r) => r.id === me)
-        const state = live && i === at ? 'now' : mine ? (mine.points ? 'right' : mine.right ? 'late' : 'wrong') : ''
+        const state = live && i === at ? 'now' : mine ? (mine.points > 0 ? 'right' : mine.right ? 'late' : 'wrong') : ''
         return (
           <li key={i} className={state}>
             {i + 1}
@@ -569,11 +598,13 @@ function Board({ players, answered, results, history, me }: { players: Player[];
                 <b>{p.name}</b>
                 {p.id === me && <small className="you">kamu</small>}
                 {r ? (
-                  r.points ? (
+                  r.points > 0 ? (
                     <em className="gain">
                       +{r.points}
                       {r.first && <Zap size={12} />}
                     </em>
+                  ) : r.points < 0 ? (
+                    <em className="miss">{r.points}</em>
                   ) : r.right ? (
                     <em className="late">telat</em>
                   ) : null
@@ -599,7 +630,7 @@ function Board({ players, answered, results, history, me }: { players: Player[];
                     {winner ? `${winner.avatar} ${winner.name} tercepat` : 'Tidak ada yang benar'}
                   </small>
                 </span>
-                {mine?.points ? <em className="gain">+{mine.points}</em> : mine?.right ? <em className="late">telat</em> : <em className="miss">{mine?.picked === null ? 'habis' : 'salah'}</em>}
+                {mine && mine.points > 0 ? <em className="gain">+{mine.points}</em> : mine?.right ? <em className="late">telat</em> : <em className="miss">{mine?.picked === null ? 'habis' : mine && mine.points < 0 ? mine.points : 'salah'}</em>}
               </li>
             )
           })}
@@ -735,7 +766,7 @@ function Room({ role, code, initial, profile, onProfile, onLeave, onRetry }: Par
   useEffect(() => {
     if (view.phase !== 'reveal' || !view.reveal) return
     const mine = view.reveal.results.find((r) => r.id === me)
-    if (mine?.points) sfx.right()
+    if (mine && mine.points > 0) sfx.right()
     else sfx.wrong()
     if (!host) return
     const id = setTimeout(nextSong, 3000)

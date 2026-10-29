@@ -48,4 +48,8 @@ export type GuestMsg =
 
 /** Extra points for the fastest right answer on each song (on top of its points for speed). */
 export const FIRST_BONUS = 200
+/** Points lost for a wrong pick (not for running out of time), so guessing at random costs something. */
+export const WRONG_PENALTY = 100
+/** Seconds everyone listens before the choices open (3, 2, 1); the clock for answering starts after. */
+export const ANSWER_DELAY = 3
 export const MAX_PLAYERS = 8

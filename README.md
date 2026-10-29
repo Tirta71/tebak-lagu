@@ -17,8 +17,9 @@ dan lirik), dan skor terbaik per kuis yang tersimpan di browser.
 - **Profil:** avatar dan nama panggilan, tersimpan di browser.
 - **Main bareng teman:** buat room (dapat kode 5 huruf dan link undangan) atau gabung pakai kode.
   Lobi berisi daftar pemain (maks 8) dan tiga langkah: Atur → Pilih kuis → Main. Semua mendengar
-  lagu yang sama; lagu selesai setelah semua menjawab (atau waktunya habis), dan hanya yang paling
-  cepat benar yang dapat poin (poin kecepatan plus bonus). Papan skor tampil 3 detik, lalu lagu
+  lagu yang sama; tiap lagu didengar 3 detik dulu (3-2-1) sebelum pilihan terbuka. Lagu selesai
+  setelah semua menjawab (atau waktunya habis); hanya yang paling cepat benar yang dapat poin (poin
+  kecepatan plus bonus), dan pilihan salah −100. Papan skor tampil 3 detik, lalu lagu
   berikutnya. Podium di akhir. Tanpa akun: browser host menjalankan room lewat
   PeerJS (WebRTC), jadi room bubar kalau host menutup tab.
 - Audio dari cuplikan 30 detik resmi Deezer (gratis, tanpa key). Lagu tanpa cuplikan dilewati.
