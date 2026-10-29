@@ -1,4 +1,4 @@
-export type Song = { id: number; title: string; artist: string; cover: string | null; preview?: string; link: string }
+export type Song = { id: number; title: string; artist: string; cover: string | null; preview?: string; link: string; duration?: number; album?: string }
 
 import type { Level } from './levels'
 

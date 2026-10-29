@@ -330,7 +330,10 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
       const results = await Promise.all(
         qs.map(async (qq) => {
           try {
-            const r = await fetch(`/api/lyrics?${new URLSearchParams({ title: qq.answer.title, artist: qq.answer.artist })}`)
+            const lparams: Record<string, string> = { title: qq.answer.title, artist: qq.answer.artist }
+            if (qq.answer.duration) lparams.duration = String(qq.answer.duration)
+            if (qq.answer.album) lparams.album = qq.answer.album
+            const r = await fetch(`/api/lyrics?${new URLSearchParams(lparams)}`)
             const lj = await r.json()
             if (lj.found && lj.context?.length >= 2) return { song: qq.answer, context: lj.context as string[], answerLine: lj.answer as string, wrongs: (lj.wrongs ?? []) as string[] } satisfies LyricsQ
           } catch {}

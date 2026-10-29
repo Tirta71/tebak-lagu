@@ -7,7 +7,7 @@ import type { Answer, Mode, QuizSource, Song } from './types'
 import { makeQuestions, comboFactor } from './Quiz'
 import { shuffle } from './random'
 
-const LINE_INTERVAL = 2.0
+const LINE_INTERVAL = 3.0
 const WRONG_PENALTY = 200
 
 type LyricOption = { text: string; correct: boolean }
@@ -54,7 +54,8 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
   const [answers, setAnswers] = useState<Answer[]>([])
   const [mute, setMute] = useState(isMuted)
   const [revealed, setRevealed] = useState(0)
-  const [phase, setPhase] = useState<'revealing' | 'choosing' | 'done'>('revealing')
+  const [phase, setPhase] = useState<'revealing' | 'countdown' | 'choosing' | 'done'>('revealing')
+  const [countdownNum, setCountdownNum] = useState(3)
   const [wrong, setWrong] = useState<Set<number>>(new Set())
   const [penalty, setPenalty] = useState(0)
   const [pickedIdx, setPickedIdx] = useState<number | null>(null)
@@ -84,7 +85,10 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
         const results = await Promise.all(
           qs.map(async (q) => {
             try {
-              const r = await fetch(`/api/lyrics?${new URLSearchParams({ title: q.answer.title, artist: q.answer.artist })}`)
+              const params: Record<string, string> = { title: q.answer.title, artist: q.answer.artist }
+              if (q.answer.duration) params.duration = String(q.answer.duration)
+              if (q.answer.album) params.album = q.answer.album
+              const r = await fetch(`/api/lyrics?${new URLSearchParams(params)}`)
               const lj = await r.json()
               if (lj.found && lj.context?.length >= 2) return { q, context: lj.context, answer: lj.answer, wrongs: lj.wrongs ?? [] } as RawLyrics
             } catch {}
@@ -132,7 +136,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
     setPickedIdx(null)
     setStarted(false)
 
-    const a = nextAudio.current?.src === q.song.preview ? nextAudio.current : new Audio(q.song.preview)
+    const a = (nextAudio.current?.src === q.song.preview ? nextAudio.current : null) ?? new Audio(q.song.preview)
     audio.current = a
     a.addEventListener('playing', () => setStarted(true), { once: true })
     a.play().catch(() => {})
@@ -147,7 +151,9 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
       setRevealed(lineCount)
       if (lineCount >= q.context.length) {
         clearInterval(lineTimer.current)
-        setTimeout(() => setPhase('choosing'), 800)
+        a.pause()
+        setStarted(false)
+        setTimeout(() => setPhase('countdown'), 400)
       }
     }, LINE_INTERVAL * 1000)
 
@@ -157,6 +163,25 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
       clearTimeout(chooseTimer.current)
     }
   }, [q, qi, questions])
+
+  // countdown 3-2-1 before showing options
+  useEffect(() => {
+    if (phase !== 'countdown') return
+    setCountdownNum(3)
+    sfx.count(false)
+    let n = 3
+    const id = setInterval(() => {
+      n--
+      if (n <= 0) {
+        clearInterval(id)
+        setPhase('choosing')
+      } else {
+        setCountdownNum(n)
+        sfx.count(n === 1)
+      }
+    }, 750)
+    return () => clearInterval(id)
+  }, [phase])
 
   // auto-fail after 15s in choosing phase
   useEffect(() => {
@@ -265,7 +290,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
           {q.context.slice(0, Math.max(revealed, phase !== 'revealing' ? q.context.length : 0)).map((line, k) => (
             <p key={k} className={k === revealed - 1 && phase === 'revealing' ? 'lyrics-new' : ''}>{line}</p>
           ))}
-          {phase === 'choosing' && <p className="lyrics-blank">???</p>}
+          {(phase === 'countdown' || phase === 'choosing') && <p className="lyrics-blank">???</p>}
           {phase === 'done' && (
             <p className={`lyrics-answer ${mine?.points > 0 ? 'correct' : 'missed'}`}>{q.answer}</p>
           )}
@@ -279,6 +304,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
         </span>
         <p className="ask">
           {phase === 'revealing' && `Dengarkan...`}
+          {phase === 'countdown' && <span key={countdownNum} className="count-num small">{countdownNum}</span>}
           {phase === 'choosing' && 'Lanjutkan liriknya!'}
           {phase === 'done' && (mine?.points > 0 ? 'Benar!' : 'Gagal')}
         </p>

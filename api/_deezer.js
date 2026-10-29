@@ -20,6 +20,8 @@ export const song = (t) => ({
   cover: t.album?.cover_medium ?? null,
   preview: t.preview,
   link: t.link,
+  duration: t.duration ?? 0,
+  album: t.album?.title ?? '',
 })
 
 export const json = (body, cache = 'no-store', status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': cache } })
