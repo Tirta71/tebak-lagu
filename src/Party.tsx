@@ -405,7 +405,7 @@ function RoomQuestion({ q, settings, answered, players, onAnswer }: { q: PublicQ
       sfx.count()
       const tick = () => {
         const elapsed = (performance.now() - startedAt.current) / 1000
-        if (rules.listen && elapsed >= rules.listen) a.pause()
+        if (rules.listen && elapsed - ANSWER_DELAY >= rules.listen) a.pause()
         // everyone listens first: 3, 2, 1 with a beep each, a higher one when the choices open
         const locked = ANSWER_DELAY - elapsed
         if (locked > 0) {
