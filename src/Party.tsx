@@ -925,13 +925,7 @@ function Room({ role, code, initial, profile, onProfile, onLeave, onRetry }: Par
                 </span>
               </div>
               <Winner reveal={view.reveal} players={view.players} me={me} />
-              {host ? (
-                <button className="primary" onClick={nextSong}>
-                  Lagu berikutnya
-                </button>
-              ) : (
-                <p className="note center-text">Lagu berikutnya sebentar lagi…</p>
-              )}
+              <p className="note center-text">Lagu berikutnya sebentar lagi…</p>
             </div>
           )}
         </div>
