@@ -2078,6 +2078,7 @@ a.lyrics-note:hover {
 }
 
 .seats {
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 22px;
   background: var(--surface);
@@ -2102,6 +2103,7 @@ a.lyrics-note:hover {
 
 .seats ol {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   list-style: none;
 }
@@ -2574,6 +2576,7 @@ a.lyrics-note:hover {
 }
 
 .seat-name {
+  width: 0;
   min-width: 0;
   flex: 1;
   border: 1px solid var(--accent);
