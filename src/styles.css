@@ -1699,6 +1699,7 @@ a.lyrics-note:hover {
 .reveal-room {
   display: grid;
   gap: 16px;
+  justify-items: center;
 }
 
 .reveal-room .now-playing {
@@ -2302,7 +2303,6 @@ a.lyrics-note:hover {
     position: sticky;
     top: 16px;
     order: 0;
-    min-height: 420px;
   }
 
   /* the board already shows who has answered */
