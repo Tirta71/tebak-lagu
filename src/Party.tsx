@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Peer, { type DataConnection } from 'peerjs'
-import { ArrowLeft, Check, ChevronRight, Copy, Crown, History, ListMusic, LogOut, Pencil, Play, Settings2, Trophy, Users, Volume2, X, Zap } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Copy, Crown, History, ListMusic, LogOut, Pencil, Play, RotateCcw, Settings2, Trophy, Users, Volume2, X, Zap } from 'lucide-react'
 import { Bit, Equalizer } from './Bit'
 import { LEVELS } from './levels'
 import { AVATARS, saveProfile, type Profile } from './local'
@@ -12,6 +12,7 @@ import { sfx } from './sfx'
 import type { Mode, Question, QuizSource, Song } from './types'
 
 const HOST = 'host'
+const NO_WEBRTC = 'Browser ini tidak bisa main bareng. Kalau link-nya terbuka di dalam aplikasi (Instagram, LINE, dll.), buka di Chrome atau Safari.'
 /** Seconds after a song starts before the host closes it anyway (slow loading, someone away). */
 const GRACE = 3
 
@@ -44,6 +45,8 @@ const ranked = (players: Player[]) => [...players].sort((a, b) => b.score - a.sc
 function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: GameSettings) {
   const [view, setView] = useState<View>(blank)
   const [roomCode, setRoomCode] = useState(code)
+  // host: the room has lost the PeerJS server and is getting it back
+  const [offline, setOffline] = useState(false)
   const myId = useRef(role === 'host' ? HOST : '')
   const peer = useRef<Peer | null>(null)
   // host-only state
@@ -221,17 +224,33 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
         const c = newCode()
         const p = new Peer(peerId(c))
         peer.current = p
+        let opened = false
         p.on('open', () => {
           if (closed) return p.destroy()
+          setOffline(false)
+          if (opened) return // back after a reconnect: same code, same room
+          opened = true
           setRoomCode(c)
           lobby()
         })
+        // The link to the PeerJS server drops when the phone sleeps or the tab goes to the
+        // background (say, to send the code on WhatsApp). Players already in keep playing, but
+        // nobody new can find the room until it is back, so get it back under the same code.
+        p.on('disconnected', () => {
+          if (closed || p.destroyed) return
+          setOffline(true)
+          window.setTimeout(revive, 1500)
+        })
         p.on('error', (e) => {
-          // someone else already has this code: pick another
-          if ((e as { type?: string }).type === 'unavailable-id' && tries > 0) {
-            p.destroy()
-            open(tries - 1)
-          } else fail('Tidak bisa membuat room. Cek koneksi internet lalu coba lagi.')
+          const type = (e as { type?: string }).type
+          if (!opened) {
+            // someone else already has this code: pick another
+            if (type === 'unavailable-id' && tries > 0) {
+              p.destroy()
+              open(tries - 1)
+            } else fail('Tidak bisa membuat room. Cek koneksi internet lalu coba lagi.')
+          } else if (type === 'unavailable-id') fail('Room ini terputus terlalu lama dan kodenya sudah tidak bisa dipakai. Buat room baru.')
+          // any other trouble once the room is open: 'disconnected' and revive bring it back
         })
         p.on('connection', (conn) => {
           conn.on('data', (raw) => {
@@ -260,25 +279,55 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
         })
       }
       open(3)
-    } else {
+    } else if (typeof RTCPeerConnection === 'undefined') fail(NO_WEBRTC)
+    else {
+      const room = code.toUpperCase()
       const p = new Peer()
       peer.current = p
       p.on('open', (id) => {
         if (closed) return p.destroy()
         myId.current = id
-        const conn = p.connect(peerId(code.toUpperCase()), { reliable: true })
+        const conn = p.connect(peerId(room), { reliable: true })
         hostConn.current = conn
         conn.on('open', () => conn.send({ t: 'hello', name: me.name || 'Tamu', avatar: me.avatar } satisfies GuestMsg))
         conn.on('data', (raw) => apply(raw as HostMsg))
-        conn.on('close', () => fail('Host menutup room.'))
+        conn.on('close', () => fail('Sambungan ke host terputus. Host mungkin keluar dari room, atau jaringannya putus.'))
       })
-      p.on('error', (e) => fail((e as { type?: string }).type === 'peer-unavailable' ? `Room ${code.toUpperCase()} tidak ditemukan.` : 'Koneksi ke room gagal. Coba lagi.'))
-      // no answer from the room for a while: say so rather than wait forever
-      setTimeout(() => setView((v) => (v.phase === 'connecting' ? { ...v, phase: 'error', error: `Belum bisa masuk ke room ${code.toUpperCase()}. Pastikan kodenya benar dan host masih di lobi.` } : v)), 15000)
+      p.on('error', (e) => {
+        const type = (e as { type?: string }).type
+        if (type === 'peer-unavailable') fail(`Room ${room} tidak ditemukan. Cek lagi kodenya. Kalau kodenya benar, minta host membuka lagi tab Tebak Lagu-nya, lalu coba lagi.`)
+        else if (type === 'browser-incompatible') fail(NO_WEBRTC)
+        else if (type === 'network' || type === 'server-error' || type === 'socket-error' || type === 'socket-closed') fail('Server room tidak bisa dihubungi. Cek internetmu, lalu coba lagi.')
+        else fail('Koneksi ke room gagal. Coba lagi.')
+      })
+      // the room was found but the two browsers can't reach each other (usually the network)
+      setTimeout(
+        () =>
+          setView((v) =>
+            v.phase === 'connecting'
+              ? { ...v, phase: 'error', error: `Belum bisa tersambung ke room ${room}. Biasanya karena jaringan: coba pindah dari data seluler ke WiFi (atau sebaliknya), atau buka link-nya di Chrome atau Safari, lalu coba lagi.` }
+              : v,
+          ),
+        15000,
+      )
     }
+
+    // host: try to get the room back while it is cut off, and as soon as the tab is back in front
+    // or the internet returns
+    const revive = () => {
+      const p = peer.current
+      if (!closed && role === 'host' && p && p.disconnected && !p.destroyed) p.reconnect()
+    }
+    const onVisible = () => document.visibilityState === 'visible' && revive()
+    const retry = window.setInterval(revive, 5000)
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', revive)
     return () => {
       closed = true
       clearTimeout(timer.current)
+      clearInterval(retry)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('online', revive)
       peer.current?.destroy()
     }
     // the room lives as long as this screen; me/initial are read once when it opens
@@ -308,7 +357,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     [role, lobby],
   )
 
-  return { view, roomCode, myId, answer, begin, nextSong, setStep, configure, chooseQuiz, backToLobby, rename }
+  return { view, roomCode, offline, myId, answer, begin, nextSong, setStep, configure, chooseQuiz, backToLobby, rename }
 }
 
 /** One song in the room: the preview plays, the clock runs, pick a choice. */
@@ -663,8 +712,16 @@ function Summary({ s }: { s: Settings }) {
   )
 }
 
-export function Party({ role, code, initial, profile, onProfile, onLeave }: { role: 'host' | 'guest'; code: string; initial: GameSettings; profile: Profile; onProfile: (p: Profile) => void; onLeave: () => void }) {
-  const { view, roomCode, myId, answer, begin, nextSong, setStep, configure, chooseQuiz, backToLobby, rename } = useRoom(role, code, profile, initial)
+type PartyProps = { role: 'host' | 'guest'; code: string; initial: GameSettings; profile: Profile; onProfile: (p: Profile) => void; onLeave: () => void }
+
+/** A room, opened again from scratch when "Coba lagi" is pressed after it failed. */
+export function Party(props: PartyProps) {
+  const [attempt, setAttempt] = useState(0)
+  return <Room key={attempt} {...props} onRetry={() => setAttempt((a) => a + 1)} />
+}
+
+function Room({ role, code, initial, profile, onProfile, onLeave, onRetry }: PartyProps & { onRetry: () => void }) {
+  const { view, roomCode, offline, myId, answer, begin, nextSong, setStep, configure, chooseQuiz, backToLobby, rename } = useRoom(role, code, profile, initial)
   const [copied, setCopied] = useState(false)
   const link = `${location.origin}/?room=${roomCode}`
   const me = myId.current
@@ -699,9 +756,14 @@ export function Party({ role, code, initial, profile, onProfile, onLeave }: { ro
       <section className="panel center">
         <Bit size={110} mood="sad" />
         <p className="note error">{view.error}</p>
-        <button className="primary" onClick={onLeave}>
-          Kembali
-        </button>
+        <div className="row">
+          <button className="primary" onClick={onRetry}>
+            <RotateCcw size={15} /> Coba lagi
+          </button>
+          <button className="ghost" onClick={onLeave}>
+            Kembali
+          </button>
+        </div>
       </section>
     )
 
@@ -734,6 +796,7 @@ export function Party({ role, code, initial, profile, onProfile, onLeave }: { ro
           </ol>
         )}
         {(view.phase === 'question' || view.phase === 'reveal') && view.q && <SongDots total={view.q.total} at={view.q.i} live={view.phase === 'question'} history={view.history} me={me} />}
+        {offline && <span className="room-offline">Menyambung ulang…</span>}
         <span className="room-code">
           Room <b>{roomCode}</b>
         </span>

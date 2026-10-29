@@ -2519,3 +2519,20 @@ a.lyrics-note:hover {
   font-weight: 700;
   outline: none;
 }
+
+/* host: the room lost the PeerJS server for a moment and is getting it back */
+.room-offline {
+  border-radius: 999px;
+  background: rgb(255 207 92 / 0.12);
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #ffcf5c;
+  animation: fade-pulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes fade-pulse {
+  to {
+    opacity: 0.5;
+  }
+}
