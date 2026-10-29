@@ -21,7 +21,7 @@ export function Result({ source, name, answers, mode, profile, onAgain, onHome }
     // each mode and level keeps its own best score
     const level = source.level ?? 'normal'
     const key = `${source.key}:${mode}:${level}`
-    setBest(saveBest({ key, name: `${name}${mode === 'artist' ? ' · penyanyi' : ''} · ${LEVELS[level].label}`, score, at: Date.now() }))
+    setBest(saveBest({ key, name: `${name}${mode === 'artist' ? ' · penyanyi' : mode === 'both' ? ' · acak' : ''} · ${LEVELS[level].label}`, score, at: Date.now() }))
     if (source.daily) saveDaily({ day: source.daily, score, marks: answers.map((a) => a.points > 0) })
   }, [source.key, source.daily, name, score, mode, answers])
 

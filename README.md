@@ -7,7 +7,7 @@ dan lirik), dan skor terbaik per kuis yang tersimpan di browser.
 
 - **Kuis:** Pilihan Tirta (playlist Petro Jam, Hits Indonesia), playlist Spotify mana pun (tempel
   link), artis (daftar pilihan + cari artis apa saja), genre, dan dekade (70an sampai 2020an).
-- **Mode:** tebak judul atau tebak penyanyi.
+- **Mode:** tebak judul, tebak penyanyi, atau acak (tiap lagu kadang judul, kadang penyanyi).
 - **Level:** Santai (15 dtk), Normal (10 dtk), Sulit (7 dtk, lagu mulai dari bagian acak, penyanyi
   disembunyikan, pilihan dari artis yang sama), Ahli (5 dtk, lagu cuma terdengar 3 detik, tanpa
   bantuan). Makin sulit, poinnya makin besar (×1 sampai ×2). Atur di `src/levels.ts`.

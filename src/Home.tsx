@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { CalendarDays, ChevronLeft, ChevronRight, Link2, Mic2, Music, Search, Trophy, User, Users, Zap } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, Link2, Mic2, Music, Search, Shuffle, Trophy, User, Users, Zap } from 'lucide-react'
 import { Bit } from './Bit'
 import { AVATARS, readBests, readDaily, saveProfile, type Profile } from './local'
 import { LEVELS, LEVEL_ORDER, type Level } from './levels'
@@ -81,7 +81,8 @@ export function Home({ profile, onProfile, onStart: start }: { profile: Profile;
   // guess the title or the singer; remembered in this browser
   const [mode, setMode] = useState<Mode>(() => {
     try {
-      return localStorage.getItem('tl-mode') === 'artist' ? 'artist' : 'title'
+      const v = localStorage.getItem('tl-mode')
+      return v === 'artist' || v === 'both' ? v : 'title'
     } catch {
       return 'title'
     }
@@ -223,30 +224,44 @@ export function Home({ profile, onProfile, onStart: start }: { profile: Profile;
         </section>
       )}
 
-      <div className="mode-pick" role="radiogroup" aria-label="Mode permainan">
-        <span>Mode:</span>
-        <button role="radio" aria-checked={mode === 'title'} onClick={() => pickMode('title')}>
-          <Music size={15} /> Tebak judul
-        </button>
-        <button role="radio" aria-checked={mode === 'artist'} onClick={() => pickMode('artist')}>
-          <Mic2 size={15} /> Tebak penyanyi
-        </button>
-      </div>
-      <div className="mode-pick level-pick" role="radiogroup" aria-label="Tingkat kesulitan">
-        <span>Level:</span>
-        {LEVEL_ORDER.map((l) => (
-          <button key={l} role="radio" aria-checked={level === l} className={`lv-${l}`} onClick={() => pickLevel(l)}>
-            {LEVELS[l].label}
-            <small>{LEVELS[l].seconds} dtk · ×{LEVELS[l].factor}</small>
-          </button>
-        ))}
-      </div>
-      <p className="level-note">
-        {level === 'santai' && 'Waktu longgar, nama penyanyi terlihat, dua bantuan.'}
-        {level === 'normal' && '10 detik per lagu, nama penyanyi terlihat, dua bantuan.'}
-        {level === 'sulit' && 'Lagu mulai dari bagian acak, penyanyi disembunyikan, pilihan dari artis yang sama, hanya 50:50.'}
-        {level === 'ahli' && 'Lagu cuma terdengar 3 detik dari bagian acak, 5 detik untuk menjawab, tanpa bantuan.'}
-      </p>
+      {/* game settings: what to guess, and how hard */}
+      <section className="settings">
+        <div className="setting">
+          <h3>Tebak apa?</h3>
+          <div className="seg modes-seg" role="radiogroup" aria-label="Mode permainan">
+            <button role="radio" aria-checked={mode === 'title'} onClick={() => pickMode('title')}>
+              <Music size={18} />
+              <b>Judul lagu</b>
+            </button>
+            <button role="radio" aria-checked={mode === 'artist'} onClick={() => pickMode('artist')}>
+              <Mic2 size={18} />
+              <b>Penyanyi</b>
+            </button>
+            <button role="radio" aria-checked={mode === 'both'} onClick={() => pickMode('both')}>
+              <Shuffle size={18} />
+              <b>Acak</b>
+            </button>
+          </div>
+        </div>
+        <div className="setting">
+          <h3>Tingkat kesulitan</h3>
+          <div className="seg levels" role="radiogroup" aria-label="Tingkat kesulitan">
+            {LEVEL_ORDER.map((l, k) => (
+              <button key={l} role="radio" aria-checked={level === l} className={`lv lv-${l}`} onClick={() => pickLevel(l)}>
+                <b>{LEVELS[l].label}</b>
+                <span className="meter" aria-hidden>
+                  {LEVEL_ORDER.map((_, n) => (
+                    <i key={n} className={n <= k ? 'on' : ''} />
+                  ))}
+                </span>
+                <small>
+                  {LEVELS[l].seconds} dtk · ×{LEVELS[l].factor}
+                </small>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
 
       <Shelf
         title="Pilihan Tirta"

@@ -357,40 +357,6 @@ h2 {
   }
 }
 
-/* the level buttons: each with its time and multiplier, colour warming up with difficulty */
-.level-pick {
-  flex-wrap: wrap;
-}
-
-.level-pick button {
-  flex-direction: column;
-  gap: 0;
-  padding: 6px 14px;
-  line-height: 1.25;
-}
-
-.level-pick small {
-  font-size: 10.5px;
-  font-weight: 600;
-  opacity: 0.75;
-}
-
-.level-pick .lv-sulit[aria-checked='true'] {
-  border-color: #f5a524;
-  background: rgb(245 165 36 / 0.16);
-}
-
-.level-pick .lv-ahli[aria-checked='true'] {
-  border-color: #ff5f6d;
-  background: rgb(255 95 109 / 0.16);
-}
-
-.level-note {
-  margin-top: -6px;
-  font-size: 12.5px;
-  color: var(--ink-muted);
-}
-
 /* the daily challenge banner */
 .daily {
   display: flex;
@@ -456,32 +422,146 @@ h2 {
   color: #2a1600;
 }
 
-/* title or singer */
-.mode-pick {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--ink-muted);
-}
+/* ---------- game settings ---------- */
 
-.mode-pick button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.settings {
+  display: grid;
+  gap: 18px;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 8px 14px;
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--ink-muted);
-  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+  border-radius: 22px;
+  background: var(--surface);
+  padding: 18px;
 }
 
-.mode-pick button[aria-checked='true'] {
-  border-color: var(--accent);
-  background: rgb(139 140 255 / 0.16);
+@media (min-width: 820px) {
+  .settings {
+    grid-template-columns: 0.9fr 1.4fr;
+  }
+}
+
+.setting {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.setting h3 {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+/* a segmented control: equal cells in one track, the chosen one lit */
+.seg {
+  display: grid;
+  gap: 6px;
+  border-radius: 16px;
+  background: var(--bg);
+  padding: 5px;
+}
+
+.seg.modes-seg {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.seg.levels {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 480px) {
+  .seg.levels {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.seg button {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: var(--ink-muted);
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.seg button:hover {
   color: var(--ink);
+}
+
+.seg button[aria-checked='true'] {
+  border-color: color-mix(in srgb, var(--lv) 55%, transparent);
+  background: color-mix(in srgb, var(--lv) 18%, var(--surface));
+  color: var(--ink);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--lv) 25%, transparent);
+}
+
+.modes-seg button {
+  display: flex;
+  min-height: 62px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.modes-seg button > svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.modes-seg b {
+  font-size: 14px;
+}
+
+/* each level its own colour, from calm green to hot red (the mode buttons use the accent) */
+.modes-seg button,
+.lv-normal {
+  --lv: #8b8cff;
+}
+
+.lv-santai {
+  --lv: #34e0a1;
+}
+
+.lv-sulit {
+  --lv: #f5a524;
+}
+
+.lv-ahli {
+  --lv: #ff5f6d;
+}
+
+.levels .lv {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  padding: 10px 6px;
+}
+
+.levels b {
+  font-size: 14px;
+}
+
+.levels small {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+}
+
+.meter {
+  display: flex;
+  gap: 3px;
+}
+
+.meter i {
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.meter i.on {
+  background: var(--lv);
 }
 
 .two {

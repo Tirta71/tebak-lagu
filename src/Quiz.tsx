@@ -8,29 +8,33 @@ import { LEVELS, type LevelRules } from './levels'
 import type { Answer, Mode, Question, QuizSource, Song } from './types'
 
 export const QUESTIONS = 10
+export const MODE_LABEL: Record<Mode, string> = { title: 'Tebak judul', artist: 'Tebak penyanyi', both: 'Judul / penyanyi acak' }
+const ASK = { title: 'Lagu apa ini?', artist: 'Siapa penyanyinya?' }
 const EXTRA = 5
 /** Deezer's previews are 30 seconds long. */
 const PREVIEW = 30
 
 /**
  * Ten songs from the pool, each with three others to choose from: other titles, or (guessing the
- * singer) songs by other artists. A seeded random source gives everyone the same quiz.
+ * singer) songs by other artists. In the mixed mode each song is one or the other at random. A
+ * seeded random source gives everyone the same quiz.
  */
 function makeQuestions(pool: Song[], mode: Mode, rng: Rng, sameArtist: boolean): Question[] {
   const singer = (s: Song) => norm(s.artist.split(',')[0])
-  const key = (s: Song) => (mode === 'artist' ? singer(s) : norm(s.title))
   const songs = shuffle(pool, rng)
   return songs.slice(0, QUESTIONS).map((answer) => {
+    const kind = mode === 'both' ? (rng() < 0.5 ? 'title' : 'artist') : mode
+    const key = (s: Song) => (kind === 'artist' ? singer(s) : norm(s.title))
     // on harder levels, other songs by the same singer come first, so the singer gives nothing away
     const others = shuffle(songs, rng)
-    const candidates = sameArtist && mode === 'title' ? [...others.filter((s) => singer(s) === singer(answer)), ...others.filter((s) => singer(s) !== singer(answer))] : others
+    const candidates = sameArtist && kind === 'title' ? [...others.filter((s) => singer(s) === singer(answer)), ...others.filter((s) => singer(s) !== singer(answer))] : others
     const picked: Song[] = []
     for (const s of candidates) if (picked.length < 3 && key(s) !== key(answer) && !picked.some((p) => key(p) === key(s))) picked.push(s)
-    return { answer, options: shuffle([answer, ...picked], rng) }
+    return { answer, options: shuffle([answer, ...picked], rng), kind }
   })
 }
 
-/** Guessing the singer needs at least four different artists in the pool. */
+/** Guessing the singer (alone or mixed in) needs at least four different artists in the pool. */
 const enoughArtists = (pool: Song[]) => new Set(pool.map((s) => norm(s.artist.split(',')[0]))).size >= 4
 
 /** Points for a right answer: 1000 straight away, down to 300 at the buzzer, times the combo and the level. */
@@ -71,7 +75,7 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
         if (!alive) return
         if (j.error || !j.tracks) return setError(j.error ?? 'Kuis tidak bisa dimuat.')
         setName(source.name === 'Playlist kamu' && j.name ? j.name : source.name)
-        const m: Mode = source.mode === 'artist' && enoughArtists(j.tracks) ? 'artist' : 'title'
+        const m: Mode = source.mode !== 'title' && source.mode && enoughArtists(j.tracks) ? source.mode : 'title'
         setMode(m)
         setQuestions(makeQuestions(j.tracks, m, source.daily ? seeded(`${source.daily}:${source.key}`) : Math.random, rules.sameArtist))
       })
@@ -219,7 +223,7 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
             <span key={count} className="count-num">
               {count}
             </span>
-            <p>{mode === 'artist' ? 'Tebak penyanyinya!' : 'Tebak judulnya!'}</p>
+            <p>{mode === 'artist' ? 'Tebak penyanyinya!' : mode === 'both' ? 'Kadang judul, kadang penyanyi!' : 'Tebak judulnya!'}</p>
           </>
         ) : (
           <p className="note">Menyiapkan {name}…</p>
@@ -238,7 +242,7 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
           <X size={14} /> Keluar
         </button>
         <span className="quiz-name">
-          {name} · {mode === 'artist' ? 'Tebak penyanyi' : 'Tebak judul'} · {rules.label}
+          {name} · {MODE_LABEL[mode]} · {rules.label}
         </span>
         <button
           className="ghost small icon"
@@ -304,10 +308,8 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
                 ? 'Kurang tepat'
                 : 'Waktu habis'
             : started
-              ? `${mode === 'artist' ? 'Siapa penyanyinya?' : 'Lagu apa ini?'} · ${Math.ceil(left)}`
-              : mode === 'artist'
-                ? 'Siapa penyanyinya?'
-                : 'Lagu apa ini?'}
+              ? `${ASK[q.kind]} · ${Math.ceil(left)}`
+              : ASK[q.kind]}
         </p>
         <span className="lifelines">
           {rules.fifty && (
@@ -335,8 +337,8 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
             <button key={o.id} className={`option c${k} ${state}`} disabled={answered || state === 'gone'} onClick={() => answer(o)}>
               <kbd>{'ABCD'[k]}</kbd>
               <span>
-                <b>{mode === 'artist' ? o.artist : o.title}</b>
-                {mode === 'title' && !rules.hideArtist && <small>{o.artist}</small>}
+                <b>{q.kind === 'artist' ? o.artist : o.title}</b>
+                {q.kind === 'title' && !rules.hideArtist && <small>{o.artist}</small>}
               </span>
               {state === 'right' && <Check size={20} />}
               {state === 'wrong' && <X size={20} />}
