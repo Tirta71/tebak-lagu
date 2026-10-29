@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronLeft, ChevronRight, Link2, Search, Trophy, User, Users, Zap } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, Link2, Mic2, Music, Search, Trophy, User, Users, Zap } from 'lucide-react'
 import { Bit } from './Bit'
-import { AVATARS, readBests, saveProfile, type Profile } from './local'
-import type { QuizSource } from './types'
+import { AVATARS, readBests, readDaily, saveProfile, type Profile } from './local'
+import { LEVELS, LEVEL_ORDER, type Level } from './levels'
+import { today } from './random'
+import type { Mode, QuizSource } from './types'
 
 type Artist = { id: number; name: string; picture: string; fans: number }
 type Genre = { id: number; name: string; picture: string }
@@ -75,7 +77,44 @@ function ProfileCard({ profile, onChange }: { profile: Profile; onChange: (p: Pr
 
 const DECADE_TINTS = ['linear-gradient(135deg,#f6a54a,#d9534f)', 'linear-gradient(135deg,#ff6fb5,#7b4dff)', 'linear-gradient(135deg,#3fd6c6,#2f6fe0)', 'linear-gradient(135deg,#9d8cff,#3b3fc4)', 'linear-gradient(135deg,#ffcf5c,#f0662f)', 'linear-gradient(135deg,#5ee0a0,#1f8f73)']
 
-export function Home({ profile, onProfile, onStart }: { profile: Profile; onProfile: (p: Profile) => void; onStart: (q: QuizSource) => void }) {
+export function Home({ profile, onProfile, onStart: start }: { profile: Profile; onProfile: (p: Profile) => void; onStart: (q: QuizSource) => void }) {
+  // guess the title or the singer; remembered in this browser
+  const [mode, setMode] = useState<Mode>(() => {
+    try {
+      return localStorage.getItem('tl-mode') === 'artist' ? 'artist' : 'title'
+    } catch {
+      return 'title'
+    }
+  })
+  const pickMode = (m: Mode) => {
+    setMode(m)
+    try {
+      localStorage.setItem('tl-mode', m)
+    } catch {
+      /* storage unavailable */
+    }
+  }
+  // how hard; remembered too
+  const [level, setLevel] = useState<Level>(() => {
+    try {
+      const v = localStorage.getItem('tl-level') as Level | null
+      return v && v in LEVELS ? v : 'normal'
+    } catch {
+      return 'normal'
+    }
+  })
+  const pickLevel = (l: Level) => {
+    setLevel(l)
+    try {
+      localStorage.setItem('tl-level', l)
+    } catch {
+      /* storage unavailable */
+    }
+  }
+  // artist quizzes are always "guess the title": every song is by the same singer
+  const onStart = (q: QuizSource) => start({ ...q, level, mode: q.key.startsWith('artist:') ? 'title' : mode })
+  const day = today()
+  const daily = readDaily(day)
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [q, setQ] = useState('')
   const [found, setFound] = useState<Artist[] | null>(null)
@@ -137,6 +176,19 @@ export function Home({ profile, onProfile, onStart }: { profile: Profile; onProf
         </div>
       </section>
 
+      {/* the daily challenge: the same ten songs for everyone today */}
+      <button className="daily" onClick={() => start({ key: 'daily', name: 'Tantangan Harian', query: 'kind=genre&id=0', mode: 'title', level: 'normal', daily: day })}>
+        <span className="daily-icon" aria-hidden>
+          <CalendarDays size={24} />
+        </span>
+        <span className="daily-text">
+          <small>Tantangan Harian · {new Intl.DateTimeFormat('id', { day: 'numeric', month: 'long' }).format(new Date())}</small>
+          <b>10 lagu yang sama untuk semua orang hari ini</b>
+          <span>{daily ? `Skormu hari ini: ${daily.score} · main lagi untuk memperbaiki` : 'Lagu-lagu terpopuler di dunia. Bandingkan skormu dengan teman.'}</span>
+        </span>
+        <em>{daily ? 'Main lagi' : 'Main'}</em>
+      </button>
+
       <div className="two">
         <ProfileCard profile={profile} onChange={onProfile} />
         <section className="modes">
@@ -170,6 +222,31 @@ export function Home({ profile, onProfile, onStart }: { profile: Profile; onProf
           </ol>
         </section>
       )}
+
+      <div className="mode-pick" role="radiogroup" aria-label="Mode permainan">
+        <span>Mode:</span>
+        <button role="radio" aria-checked={mode === 'title'} onClick={() => pickMode('title')}>
+          <Music size={15} /> Tebak judul
+        </button>
+        <button role="radio" aria-checked={mode === 'artist'} onClick={() => pickMode('artist')}>
+          <Mic2 size={15} /> Tebak penyanyi
+        </button>
+      </div>
+      <div className="mode-pick level-pick" role="radiogroup" aria-label="Tingkat kesulitan">
+        <span>Level:</span>
+        {LEVEL_ORDER.map((l) => (
+          <button key={l} role="radio" aria-checked={level === l} className={`lv-${l}`} onClick={() => pickLevel(l)}>
+            {LEVELS[l].label}
+            <small>{LEVELS[l].seconds} dtk · ×{LEVELS[l].factor}</small>
+          </button>
+        ))}
+      </div>
+      <p className="level-note">
+        {level === 'santai' && 'Waktu longgar, nama penyanyi terlihat, dua bantuan.'}
+        {level === 'normal' && '10 detik per lagu, nama penyanyi terlihat, dua bantuan.'}
+        {level === 'sulit' && 'Lagu mulai dari bagian acak, penyanyi disembunyikan, pilihan dari artis yang sama, hanya 50:50.'}
+        {level === 'ahli' && 'Lagu cuma terdengar 3 detik dari bagian acak, 5 detik untuk menjawab, tanpa bantuan.'}
+      </p>
 
       <Shelf
         title="Pilihan Tirta"

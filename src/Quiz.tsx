@@ -1,46 +1,65 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowRight, Check, Volume2, X } from 'lucide-react'
-import { Bit, Equalizer } from './Bit'
+import { ArrowRight, Check, Flame, Plus, Scissors, Volume2, VolumeX, X } from 'lucide-react'
 import { norm } from '../api/_match.js'
-import type { Answer, Question, QuizSource, Song } from './types'
+import { Bit, Equalizer } from './Bit'
+import { seeded, shuffle, type Rng } from './random'
+import { isMuted, setMuted, sfx } from './sfx'
+import { LEVELS, type LevelRules } from './levels'
+import type { Answer, Mode, Question, QuizSource, Song } from './types'
 
 export const QUESTIONS = 10
-export const SECONDS = 15
+const EXTRA = 5
+/** Deezer's previews are 30 seconds long. */
+const PREVIEW = 30
 
-function shuffle<T>(list: T[]) {
-  const a = [...list]
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
-
-/** Ten songs from the pool, each with three other titles from the same pool to choose from. */
-function makeQuestions(pool: Song[]): Question[] {
-  const songs = shuffle(pool)
+/**
+ * Ten songs from the pool, each with three others to choose from: other titles, or (guessing the
+ * singer) songs by other artists. A seeded random source gives everyone the same quiz.
+ */
+function makeQuestions(pool: Song[], mode: Mode, rng: Rng, sameArtist: boolean): Question[] {
+  const singer = (s: Song) => norm(s.artist.split(',')[0])
+  const key = (s: Song) => (mode === 'artist' ? singer(s) : norm(s.title))
+  const songs = shuffle(pool, rng)
   return songs.slice(0, QUESTIONS).map((answer) => {
-    const others = shuffle(songs.filter((s) => norm(s.title) !== norm(answer.title)))
+    // on harder levels, other songs by the same singer come first, so the singer gives nothing away
+    const others = shuffle(songs, rng)
+    const candidates = sameArtist && mode === 'title' ? [...others.filter((s) => singer(s) === singer(answer)), ...others.filter((s) => singer(s) !== singer(answer))] : others
     const picked: Song[] = []
-    for (const s of others) if (picked.length < 3 && !picked.some((p) => norm(p.title) === norm(s.title))) picked.push(s)
-    return { answer, options: shuffle([answer, ...picked]) }
+    for (const s of candidates) if (picked.length < 3 && key(s) !== key(answer) && !picked.some((p) => key(p) === key(s))) picked.push(s)
+    return { answer, options: shuffle([answer, ...picked], rng) }
   })
 }
 
-/** Points for a right answer: 1000 straight away, down to 300 at the buzzer. */
-export const pointsFor = (secondsLeft: number) => Math.round(300 + 700 * (secondsLeft / SECONDS))
+/** Guessing the singer needs at least four different artists in the pool. */
+const enoughArtists = (pool: Song[]) => new Set(pool.map((s) => norm(s.artist.split(',')[0]))).size >= 4
 
-export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (answers: Answer[], name: string) => void; onQuit: () => void }) {
+/** Points for a right answer: 1000 straight away, down to 300 at the buzzer, times the combo and the level. */
+export const pointsFor = (secondsLeft: number, combo: number, rules: LevelRules) => Math.round((300 + 700 * Math.min(1, secondsLeft / rules.seconds)) * comboFactor(combo) * rules.factor)
+export const comboFactor = (combo: number) => (combo >= 5 ? 2 : combo >= 3 ? 1.5 : 1)
+
+export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (answers: Answer[], name: string, mode: Mode) => void; onQuit: () => void }) {
+  const rules = LEVELS[source.level ?? 'normal']
+  const SECONDS = rules.seconds
   const [questions, setQuestions] = useState<Question[] | null>(null)
+  const [mode, setMode] = useState<Mode>(source.mode ?? 'title')
   const [name, setName] = useState(source.name)
   const [error, setError] = useState<string | null>(null)
+  const [count, setCount] = useState(3)
   const [i, setI] = useState(0)
   const [answers, setAnswers] = useState<Answer[]>([])
   const [left, setLeft] = useState(SECONDS)
   const [started, setStarted] = useState(false)
+  // the song has stopped (on Ahli it only plays for a few seconds)
+  const [silent, setSilent] = useState(false)
+  const [mute, setMute] = useState(isMuted)
+  // lifelines, once each per quiz: 50:50 (which question, and which options it hid) and +5 s
+  const [fifty, setFifty] = useState<{ at: number; hidden: number[] } | null>(null)
+  const [extraAt, setExtraAt] = useState<number | null>(null)
   const audio = useRef<HTMLAudioElement | null>(null)
   const nextAudio = useRef<HTMLAudioElement | null>(null)
   const startedAt = useRef(0)
+  const limit = useRef(SECONDS)
+  const lastTick = useRef(99)
   const raf = useRef(0)
 
   useEffect(() => {
@@ -52,15 +71,26 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
         if (!alive) return
         if (j.error || !j.tracks) return setError(j.error ?? 'Kuis tidak bisa dimuat.')
         setName(source.name === 'Playlist kamu' && j.name ? j.name : source.name)
-        setQuestions(makeQuestions(j.tracks))
+        const m: Mode = source.mode === 'artist' && enoughArtists(j.tracks) ? 'artist' : 'title'
+        setMode(m)
+        setQuestions(makeQuestions(j.tracks, m, source.daily ? seeded(`${source.daily}:${source.key}`) : Math.random, rules.sameArtist))
       })
     return () => {
       alive = false
     }
   }, [source])
 
-  const q = questions?.[i]
+  // 3, 2, 1 before the first song (once the songs are ready)
+  useEffect(() => {
+    if (!questions || count <= 0) return
+    sfx.count(count === 1)
+    const id = setTimeout(() => setCount((c) => c - 1), 750)
+    return () => clearTimeout(id)
+  }, [questions, count])
+
+  const q = count <= 0 ? questions?.[i] : undefined
   const answered = answers.length > i
+  const combo = answers.length && answers[answers.length - 1].points ? answers[answers.length - 1].combo : 0
 
   const stopClock = () => cancelAnimationFrame(raf.current)
 
@@ -68,18 +98,27 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
     (picked: Song | null) => {
       if (!q || answers.length > i) return
       stopClock()
-      const secondsLeft = Math.max(0, SECONDS - (performance.now() - startedAt.current) / 1000)
+      const elapsed = startedAt.current ? (performance.now() - startedAt.current) / 1000 : 0
+      const secondsLeft = Math.max(0, Math.min(SECONDS, limit.current - elapsed))
       const right = !!picked && picked.id === q.answer.id
-      setAnswers((a) => [...a, { question: q, picked, points: right ? pointsFor(secondsLeft) : 0, seconds: SECONDS - secondsLeft }])
+      const nextCombo = right ? combo + 1 : 0
+      if (right) {
+        sfx.right()
+        if (nextCombo === 3 || nextCombo === 5) setTimeout(sfx.combo, 250)
+      } else sfx.wrong()
+      setAnswers((a) => [...a, { question: q, picked, points: right ? pointsFor(secondsLeft, nextCombo, rules) : 0, seconds: Math.min(elapsed, limit.current), combo: nextCombo }])
     },
-    [q, answers.length, i],
+    [q, answers.length, i, combo, rules, SECONDS],
   )
 
   // each question: play the preview, and start the clock when the music actually starts
   useEffect(() => {
     if (!q) return
     setStarted(false)
+    setSilent(false)
     setLeft(SECONDS)
+    limit.current = SECONDS
+    lastTick.current = 99
     const ready = nextAudio.current
     const a = ready && ready.src === q.answer.preview ? ready : new Audio(q.answer.preview)
     audio.current = a
@@ -88,8 +127,20 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
       startedAt.current = performance.now()
       setStarted(true)
       const tick = () => {
-        const l = SECONDS - (performance.now() - startedAt.current) / 1000
+        const elapsed = (performance.now() - startedAt.current) / 1000
+        // on Ahli the song stops after a few seconds; the clock keeps going
+        if (rules.listen && elapsed >= rules.listen && !a.paused) {
+          a.pause()
+          setSilent(true)
+        }
+        const l = limit.current - elapsed
         setLeft(Math.max(0, l))
+        // a tick for each of the last three seconds
+        const whole = Math.ceil(l)
+        if (whole <= 3 && whole >= 1 && whole < lastTick.current) {
+          lastTick.current = whole
+          sfx.tick()
+        }
         if (l <= 0) return
         raf.current = requestAnimationFrame(tick)
       }
@@ -97,7 +148,9 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
     }
     startedAt.current = 0
     a.addEventListener('playing', onPlaying)
-    a.currentTime = 0
+    // harder levels start somewhere inside the preview, not at its (often quiet) beginning
+    const span = rules.listen ?? SECONDS
+    a.currentTime = rules.randomStart ? 3 + Math.random() * Math.max(0, PREVIEW - span - 6) : 0
     a.play().catch(() => setStarted(false))
     // load the next song meanwhile, so it starts straight away
     const upcoming = questions?.[i + 1]
@@ -108,19 +161,33 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
       a.pause()
       stopClock()
     }
-  }, [q, i, questions])
+  }, [q, i, questions, rules, SECONDS])
 
   // out of time
   useEffect(() => {
     if (started && left <= 0 && !answered) answer(null)
   }, [left, started, answered, answer])
 
-  // keys 1–4 pick an option, Enter moves on
+  const useFifty = () => {
+    if (!q || fifty || answered || !rules.fifty) return
+    const wrong = shuffle(q.options.filter((o) => o.id !== q.answer.id)).slice(0, 2)
+    setFifty({ at: i, hidden: wrong.map((o) => o.id) })
+  }
+  const useExtra = () => {
+    if (!q || extraAt !== null || answered || !started || !rules.extra) return
+    limit.current += EXTRA
+    lastTick.current = 99
+    setExtraAt(i)
+  }
+  const hidden = fifty?.at === i ? fifty.hidden : []
+
+  // keys 1–4 (or A–D) pick an option, Enter moves on
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!q) return
-      const n = Number(e.key)
-      if (!answered && n >= 1 && n <= q.options.length) answer(q.options[n - 1])
+      const n = Number(e.key) || 'abcd'.indexOf(e.key.toLowerCase()) + 1
+      const o = q.options[n - 1]
+      if (!answered && o && !hidden.includes(o.id)) answer(o)
       else if (answered && e.key === 'Enter') next()
     }
     window.addEventListener('keydown', onKey)
@@ -129,37 +196,63 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
 
   const next = () => {
     if (!questions) return
-    if (i + 1 >= questions.length) return onDone(answers, name)
+    if (i + 1 >= questions.length) return onDone(answers, name, mode)
     setI(i + 1)
   }
 
   if (error)
     return (
       <section className="panel center">
+        <Bit size={110} mood="sad" />
         <p className="note error">{error}</p>
         <button className="primary" onClick={onQuit}>
           Kembali
         </button>
       </section>
     )
-  if (!questions || !q)
+  if (!questions || count > 0)
     return (
-      <section className="panel center">
-        <span className="disc" aria-hidden />
-        <p className="note">Menyiapkan {name}…</p>
+      <section className="countdown">
+        <Bit size={140} mood="listen" />
+        {questions ? (
+          <>
+            <span key={count} className="count-num">
+              {count}
+            </span>
+            <p>{mode === 'artist' ? 'Tebak penyanyinya!' : 'Tebak judulnya!'}</p>
+          </>
+        ) : (
+          <p className="note">Menyiapkan {name}…</p>
+        )}
       </section>
     )
+  if (!q) return null
 
   const score = answers.reduce((s, a) => s + a.points, 0)
   const mine = answers[i]
+  const factor = comboFactor(combo + 1)
   return (
     <section className="quiz">
       <header className="quiz-head">
         <button className="ghost small" onClick={onQuit}>
           <X size={14} /> Keluar
         </button>
-        <span className="quiz-name">{name}</span>
-        <b className="quiz-score">{score}</b>
+        <span className="quiz-name">
+          {name} · {mode === 'artist' ? 'Tebak penyanyi' : 'Tebak judul'} · {rules.label}
+        </span>
+        <button
+          className="ghost small icon"
+          aria-label={mute ? 'Nyalakan efek suara' : 'Matikan efek suara'}
+          onClick={() => {
+            setMuted(!mute)
+            setMute(!mute)
+          }}
+        >
+          {mute ? <VolumeX size={15} /> : <Volume2 size={15} />}
+        </button>
+        <b className="quiz-score" key={score}>
+          {score}
+        </b>
       </header>
 
       <div className="progress" aria-label={`Lagu ${i + 1} dari ${questions.length}`}>
@@ -169,9 +262,9 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
         })}
       </div>
 
-      {/* the clock: a thick bar that runs down over 15 seconds, red in the last five */}
+      {/* the clock: a thick bar that runs down, red in the last five seconds */}
       <div className={`timebar${left <= 5 && !answered ? ' hurry' : ''}`} aria-hidden>
-        <span style={{ transform: `scaleX(${answered ? 0 : left / SECONDS})` }} />
+        <span style={{ transform: `scaleX(${answered ? 0 : Math.min(1, left / SECONDS)})` }} />
       </div>
 
       <div className="stage">
@@ -186,11 +279,48 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
         ) : (
           <>
             <Bit size={120} mood="listen" />
-            <Equalizer on={started} />
+            <Equalizer on={started && !silent} />
           </>
         )}
         {answered && <Bit size={86} mood={mine.points ? 'happy' : 'sad'} />}
-        {answered && mine.points > 0 && <span className="float-points">+{mine.points}</span>}
+        {answered && mine.points > 0 && (
+          <span className="float-points">
+            +{mine.points}
+            {mine.combo >= 3 && <small> ×{comboFactor(mine.combo)}</small>}
+          </span>
+        )}
+      </div>
+
+      <div className="hud">
+        <span className={`combo${combo >= 3 ? ' hot' : ''}`} title="Benar berturut-turut">
+          <Flame size={15} /> {combo}
+          {factor > 1 && !answered && <em>×{factor}</em>}
+        </span>
+        <p className="ask">
+          {answered
+            ? mine.points
+              ? 'Benar!'
+              : mine.picked
+                ? 'Kurang tepat'
+                : 'Waktu habis'
+            : started
+              ? `${mode === 'artist' ? 'Siapa penyanyinya?' : 'Lagu apa ini?'} · ${Math.ceil(left)}`
+              : mode === 'artist'
+                ? 'Siapa penyanyinya?'
+                : 'Lagu apa ini?'}
+        </p>
+        <span className="lifelines">
+          {rules.fifty && (
+            <button className="lifeline" disabled={!!fifty || answered} onClick={useFifty} title="Hapus 2 jawaban salah (sekali per kuis)">
+              <Scissors size={14} /> 50:50
+            </button>
+          )}
+          {rules.extra && (
+            <button className="lifeline" disabled={extraAt !== null || answered || !started} onClick={useExtra} title="Tambah 5 detik (sekali per kuis)">
+              <Plus size={14} /> 5 dtk
+            </button>
+          )}
+        </span>
       </div>
       {!started && !answered && (
         <button className="ghost small center-self" onClick={() => audio.current?.play()}>
@@ -198,19 +328,15 @@ export function Quiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (
         </button>
       )}
 
-      <p className="ask">
-        {answered ? (mine.points ? 'Benar!' : mine.picked ? 'Kurang tepat' : 'Waktu habis') : started ? `Lagu apa ini? · ${Math.ceil(left)}` : 'Lagu apa ini?'}
-      </p>
-
       <div className="options">
         {q.options.map((o, k) => {
-          const state = !answered ? '' : o.id === q.answer.id ? 'right' : mine.picked?.id === o.id ? 'wrong' : 'dim'
+          const state = !answered ? (hidden.includes(o.id) ? 'gone' : '') : o.id === q.answer.id ? 'right' : mine.picked?.id === o.id ? 'wrong' : 'dim'
           return (
-            <button key={o.id} className={`option c${k} ${state}`} disabled={answered} onClick={() => answer(o)}>
+            <button key={o.id} className={`option c${k} ${state}`} disabled={answered || state === 'gone'} onClick={() => answer(o)}>
               <kbd>{'ABCD'[k]}</kbd>
               <span>
-                <b>{o.title}</b>
-                <small>{o.artist}</small>
+                <b>{mode === 'artist' ? o.artist : o.title}</b>
+                {mode === 'title' && !rules.hideArtist && <small>{o.artist}</small>}
               </span>
               {state === 'right' && <Check size={20} />}
               {state === 'wrong' && <X size={20} />}

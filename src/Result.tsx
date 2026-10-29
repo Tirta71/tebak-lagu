@@ -1,20 +1,43 @@
 import { useEffect, useState } from 'react'
-import { Check, ExternalLink, FileText, RotateCcw, Trophy, X } from 'lucide-react'
+import { Check, ExternalLink, FileText, Flame, RotateCcw, Share2, Trophy, X } from 'lucide-react'
 import { Bit } from './Bit'
+import { Confetti } from './Confetti'
 import { LyricsPanel } from './LyricsPanel'
-import { saveBest, type Profile } from './local'
-import type { Answer, QuizSource } from './types'
+import { LEVELS } from './levels'
+import { saveBest, saveDaily, type Profile } from './local'
+import type { Answer, Mode, QuizSource } from './types'
 
 /** The score, a best-score flag, and the ten songs: what they were, what you picked, lyrics on tap. */
-export function Result({ source, name, answers, profile, onAgain, onHome }: { source: QuizSource; name: string; answers: Answer[]; profile: Profile; onAgain: () => void; onHome: () => void }) {
+export function Result({ source, name, answers, mode, profile, onAgain, onHome }: { source: QuizSource; name: string; answers: Answer[]; mode: Mode; profile: Profile; onAgain: () => void; onHome: () => void }) {
   const score = answers.reduce((s, a) => s + a.points, 0)
   const right = answers.filter((a) => a.points).length
   const [best, setBest] = useState(false)
   const [open, setOpen] = useState<number | null>(null)
 
+  const [shared, setShared] = useState(false)
+  const bestCombo = Math.max(0, ...answers.map((a) => a.combo))
+
   useEffect(() => {
-    setBest(saveBest({ key: source.key, name, score, at: Date.now() }))
-  }, [source.key, name, score])
+    // each mode and level keeps its own best score
+    const level = source.level ?? 'normal'
+    const key = `${source.key}:${mode}:${level}`
+    setBest(saveBest({ key, name: `${name}${mode === 'artist' ? ' · penyanyi' : ''} · ${LEVELS[level].label}`, score, at: Date.now() }))
+    if (source.daily) saveDaily({ day: source.daily, score, marks: answers.map((a) => a.points > 0) })
+  }, [source.key, source.daily, name, score, mode, answers])
+
+  // the daily challenge's result as text: a row of squares, like the word games do
+  const share = async () => {
+    const text = `Tebak Lagu · Tantangan ${source.daily}\n${answers.map((a) => (a.points ? '🟩' : '🟥')).join('')}\n${score} poin · ${right}/${answers.length} benar\n${location.origin}`
+    try {
+      if (navigator.share) await navigator.share({ text })
+      else {
+        await navigator.clipboard.writeText(text)
+        setShared(true)
+      }
+    } catch {
+      /* closed the share sheet */
+    }
+  }
 
   const fast = answers.filter((a) => a.points).sort((a, b) => a.seconds - b.seconds)[0]
   const avg = right ? answers.filter((a) => a.points).reduce((t, a) => t + a.seconds, 0) / right : 0
@@ -22,10 +45,11 @@ export function Result({ source, name, answers, profile, onAgain, onHome }: { so
   const rank = right >= 9 ? 'Telinga emas' : right >= 7 ? 'Pendengar sejati' : right >= 4 ? 'Lumayan hafal' : right >= 1 ? 'Masih pemanasan' : 'Coba sekali lagi'
   return (
     <section className="result">
+      {(best || right >= 7) && <Confetti />}
       <div className="panel center">
         <Bit size={120} mood={right >= 5 ? 'happy' : right ? 'listen' : 'sad'} />
         <p className="muted">
-          <span aria-hidden>{profile.avatar}</span> {profile.name || 'Kamu'} · {name}
+          <span aria-hidden>{profile.avatar}</span> {profile.name || 'Kamu'} · {name} · {LEVELS[source.level ?? 'normal'].label}
         </p>
         <span className="rank">{rank}</span>
         <h1 className="final">{score}</h1>
@@ -44,7 +68,20 @@ export function Result({ source, name, answers, profile, onAgain, onHome }: { so
             <dt>Rata-rata</dt>
             <dd>{right ? `${avg.toFixed(1)} dtk` : '–'}</dd>
           </div>
+          <div>
+            <dt>Combo</dt>
+            <dd>
+              <Flame size={14} /> {bestCombo}
+            </dd>
+          </div>
         </dl>
+        {source.daily && (
+          <p className="marks" aria-label={`${right} dari ${answers.length} benar`}>
+            {answers.map((a, k) => (
+              <i key={k} className={a.points ? 'right' : 'wrong'} />
+            ))}
+          </p>
+        )}
         {best && (
           <p className="best-flag">
             <Trophy size={15} /> Skor terbaik baru untuk kuis ini!
@@ -54,6 +91,11 @@ export function Result({ source, name, answers, profile, onAgain, onHome }: { so
           <button className="primary" onClick={onAgain}>
             <RotateCcw size={16} /> Main lagi
           </button>
+          {source.daily && (
+            <button className="ghost" onClick={share}>
+              <Share2 size={15} /> {shared ? 'Tersalin!' : 'Bagikan'}
+            </button>
+          )}
           <button className="ghost" onClick={onHome}>
             Kuis lain
           </button>

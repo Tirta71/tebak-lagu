@@ -34,3 +34,14 @@ export function saveBest(b: Best) {
   write('tl-bests', [b, ...all.filter((x) => x.key !== b.key)].slice(0, 30))
   return true
 }
+
+/** The daily challenge: today's best score and right/wrong row, to show on the home page and share. */
+export type Daily = { day: string; score: number; marks: boolean[] }
+export const readDaily = (day: string) => {
+  const d = read<Daily | null>('tl-daily', null)
+  return d?.day === day ? d : null
+}
+export function saveDaily(d: Daily) {
+  const old = readDaily(d.day)
+  if (!old || d.score > old.score) write('tl-daily', d)
+}

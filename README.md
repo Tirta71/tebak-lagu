@@ -7,6 +7,14 @@ dan lirik), dan skor terbaik per kuis yang tersimpan di browser.
 
 - **Kuis:** Pilihan Tirta (playlist Petro Jam, Hits Indonesia), playlist Spotify mana pun (tempel
   link), artis (daftar pilihan + cari artis apa saja), genre, dan dekade (70an sampai 2020an).
+- **Mode:** tebak judul atau tebak penyanyi.
+- **Level:** Santai (15 dtk), Normal (10 dtk), Sulit (7 dtk, lagu mulai dari bagian acak, penyanyi
+  disembunyikan, pilihan dari artis yang sama), Ahli (5 dtk, lagu cuma terdengar 3 detik, tanpa
+  bantuan). Makin sulit, poinnya makin besar (×1 sampai ×2). Atur di `src/levels.ts`.
+- **Seru-seruan:** hitung mundur 3-2-1, efek suara (bisa dimatikan), combo (×1,5 setelah 3 benar
+  beruntun, ×2 setelah 5), bantuan 50:50 dan +5 detik, confetti untuk skor bagus.
+- **Tantangan Harian:** 10 lagu yang sama untuk semua orang hari ini (level Normal), dengan hasil
+  berbentuk kotak 🟩🟥 yang bisa dibagikan.
 - **Profil:** avatar dan nama panggilan, tersimpan di browser.
 - **Main bareng teman:** belum ada (butuh layanan real-time, misalnya Supabase).
 - Audio dari cuplikan 30 detik resmi Deezer (gratis, tanpa key). Lagu tanpa cuplikan dilewati.

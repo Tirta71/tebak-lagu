@@ -357,6 +357,133 @@ h2 {
   }
 }
 
+/* the level buttons: each with its time and multiplier, colour warming up with difficulty */
+.level-pick {
+  flex-wrap: wrap;
+}
+
+.level-pick button {
+  flex-direction: column;
+  gap: 0;
+  padding: 6px 14px;
+  line-height: 1.25;
+}
+
+.level-pick small {
+  font-size: 10.5px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.level-pick .lv-sulit[aria-checked='true'] {
+  border-color: #f5a524;
+  background: rgb(245 165 36 / 0.16);
+}
+
+.level-pick .lv-ahli[aria-checked='true'] {
+  border-color: #ff5f6d;
+  background: rgb(255 95 109 / 0.16);
+}
+
+.level-note {
+  margin-top: -6px;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+/* the daily challenge banner */
+.daily {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid rgb(245 165 36 / 0.35);
+  border-radius: 22px;
+  background:
+    radial-gradient(60% 120% at 100% 0%, rgb(245 165 36 / 0.22), transparent 70%),
+    var(--surface);
+  padding: 16px 18px;
+  text-align: left;
+  transition: transform 0.15s;
+}
+
+.daily:hover {
+  transform: translateY(-2px);
+}
+
+.daily-icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: none;
+  place-items: center;
+  border-radius: 14px;
+  background: linear-gradient(150deg, #ffc35c, #f08424);
+  color: #2a1600;
+}
+
+.daily-text {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.daily-text small {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffcf5c;
+}
+
+.daily-text b {
+  font-size: 16px;
+}
+
+.daily-text span {
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.daily em {
+  flex: none;
+  border-radius: 999px;
+  background: #f5a524;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 800;
+  color: #2a1600;
+}
+
+/* title or singer */
+.mode-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.mode-pick button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.mode-pick button[aria-checked='true'] {
+  border-color: var(--accent);
+  background: rgb(139 140 255 / 0.16);
+  color: var(--ink);
+}
+
 .two {
   display: grid;
   gap: 14px;
@@ -707,7 +834,12 @@ h2 {
   color: var(--ink-muted);
 }
 
+.ghost.icon {
+  padding: 7px 9px;
+}
+
 .quiz-score {
+  animation: pop 0.35s ease both;
   min-width: 70px;
   border-radius: 999px;
   background: var(--surface);
@@ -739,6 +871,45 @@ h2 {
 
 .progress i.wrong {
   background: var(--bad);
+}
+
+/* ---------- 3, 2, 1 ---------- */
+
+.countdown {
+  display: flex;
+  min-height: 60vh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.count-num {
+  font-size: 96px;
+  font-weight: 800;
+  line-height: 1;
+  background: linear-gradient(90deg, #9d8cff, #ff8ab4);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: count 0.75s ease-out both;
+}
+
+.countdown p {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+@keyframes count {
+  from {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* ---------- the quiz stage ---------- */
@@ -832,6 +1003,11 @@ h2 {
   color: var(--ink-muted);
 }
 
+.float-points small {
+  font-size: 15px;
+  color: #ffb36b;
+}
+
 .float-points {
   position: absolute;
   top: 0;
@@ -854,6 +1030,84 @@ h2 {
   to {
     opacity: 0;
     transform: translateY(-24px);
+  }
+}
+
+/* combo on the left, the question in the middle, lifelines on the right */
+.hud {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.combo {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 4px;
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-muted);
+}
+
+.combo.hot {
+  background: linear-gradient(90deg, #ff7a3d, #ff3d6e);
+  color: #fff;
+  box-shadow: 0 0 18px rgb(255 90 80 / 0.45);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.combo em {
+  margin-left: 2px;
+  font-style: normal;
+}
+
+@keyframes pulse {
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+.lifelines {
+  display: flex;
+  justify-self: end;
+  gap: 6px;
+}
+
+.lifeline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  transition: background-color 0.15s, opacity 0.2s;
+}
+
+.lifeline:not(:disabled):hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
+.lifeline:disabled {
+  opacity: 0.35;
+}
+
+@media (max-width: 520px) {
+  .hud {
+    grid-template-columns: auto 1fr;
+  }
+
+  .hud .ask {
+    grid-column: 1 / -1;
+    grid-row: 1;
   }
 }
 
@@ -965,6 +1219,13 @@ h2 {
   opacity: 0.4;
 }
 
+/* taken away by 50:50 */
+.option.gone {
+  opacity: 0.12;
+  filter: grayscale(1);
+  transform: scale(0.97);
+}
+
 @keyframes shake {
   20%,
   60% {
@@ -1031,9 +1292,14 @@ h2 {
 .result-stats {
   display: grid;
   width: 100%;
-  max-width: 380px;
-  grid-template-columns: repeat(3, 1fr);
+  max-width: 460px;
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
+}
+
+.result-stats dd svg {
+  vertical-align: -2px;
+  color: #ff7a3d;
 }
 
 .result-stats div {
@@ -1053,6 +1319,33 @@ h2 {
 .result-stats dd {
   font-size: 17px;
   font-weight: 800;
+}
+
+/* the daily row of right and wrong */
+.marks {
+  display: flex;
+  gap: 4px;
+}
+
+.marks i {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+}
+
+.marks i.right {
+  background: var(--good);
+}
+
+.marks i.wrong {
+  background: var(--bad);
+}
+
+.confetti {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
 }
 
 .best-flag {

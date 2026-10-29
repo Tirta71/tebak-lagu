@@ -4,7 +4,7 @@ import { Home } from './Home'
 import { Quiz } from './Quiz'
 import { Result } from './Result'
 import { readProfile, type Profile } from './local'
-import type { Answer, QuizSource } from './types'
+import type { Answer, Mode, QuizSource } from './types'
 
 /*
  * Tebak Lagu: pick a quiz (an artist, a genre, a decade, or a Spotify playlist), then ten songs
@@ -12,7 +12,7 @@ import type { Answer, QuizSource } from './types'
  * you're right, the more points. Audio is Deezer's 30-second previews; lyrics come from Genius.
  */
 
-type Screen = { at: 'home' } | { at: 'quiz'; source: QuizSource; run: number } | { at: 'result'; source: QuizSource; name: string; answers: Answer[] }
+type Screen = { at: 'home' } | { at: 'quiz'; source: QuizSource; run: number } | { at: 'result'; source: QuizSource; name: string; answers: Answer[]; mode: Mode }
 
 export function App() {
   const [profile, setProfile] = useState<Profile>(readProfile)
@@ -45,8 +45,8 @@ export function App() {
 
       <main>
         {screen.at === 'home' && <Home profile={profile} onProfile={setProfile} onStart={start} />}
-        {screen.at === 'quiz' && <Quiz key={screen.run} source={screen.source} onQuit={home} onDone={(answers, name) => setScreen({ at: 'result', source: screen.source, name, answers })} />}
-        {screen.at === 'result' && <Result source={screen.source} name={screen.name} answers={screen.answers} profile={profile} onAgain={() => start(screen.source)} onHome={home} />}
+        {screen.at === 'quiz' && <Quiz key={screen.run} source={screen.source} onQuit={home} onDone={(answers, name, mode) => setScreen({ at: 'result', source: screen.source, name, answers, mode })} />}
+        {screen.at === 'result' && <Result source={screen.source} name={screen.name} answers={screen.answers} mode={screen.mode} profile={profile} onAgain={() => start(screen.source)} onHome={home} />}
       </main>
 
       <footer className="foot">
