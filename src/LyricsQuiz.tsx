@@ -7,32 +7,29 @@ import type { Answer, Mode, QuizSource, Song } from './types'
 import { makeQuestions, comboFactor } from './Quiz'
 import { shuffle } from './random'
 
-const LINE_INTERVAL = 3.0
 const WRONG_PENALTY = 200
 
+type ContextLine = { text: string; delay: number }
 type LyricOption = { text: string; correct: boolean }
-type LyricsQuestion = { song: Song; context: string[]; answer: string; options: LyricOption[] }
+type LyricsQuestion = { song: Song; context: ContextLine[]; answer: string; options: LyricOption[] }
 
 function lyricsPoints(combo: number, fast: boolean, rules: LevelRules) {
   const base = fast ? 800 : 500
   return Math.round(base * rules.factor * comboFactor(combo))
 }
 
-/** Build 4 lyric-line options: 1 correct + 3 wrong. */
 function buildOptions(answer: string, wrongPool: string[], allQuestions: LyricsQuestion[], qi: number): LyricOption[] {
   const wrongs: string[] = []
   const seen = new Set([answer.toLowerCase()])
-  // first from same-song wrongs
   for (const w of wrongPool) {
     const k = w.toLowerCase()
     if (!seen.has(k)) { wrongs.push(w); seen.add(k) }
     if (wrongs.length >= 3) break
   }
-  // fill from other questions' context/answer if needed
   if (wrongs.length < 3) {
     for (let j = 0; j < allQuestions.length && wrongs.length < 3; j++) {
       if (j === qi) continue
-      for (const line of [...allQuestions[j].context, allQuestions[j].answer]) {
+      for (const line of [...allQuestions[j].context.map(c => c.text), allQuestions[j].answer]) {
         const k = line.toLowerCase()
         if (!seen.has(k) && line.length > 5) { wrongs.push(line); seen.add(k) }
         if (wrongs.length >= 3) break
@@ -62,7 +59,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
   const [started, setStarted] = useState(false)
   const audio = useRef<HTMLAudioElement | null>(null)
   const nextAudio = useRef<HTMLAudioElement | null>(null)
-  const lineTimer = useRef(0)
+  const revealTimers = useRef<number[]>([])
   const chooseTimer = useRef(0)
 
   const combo = answers.length && answers[answers.length - 1].points > 0 ? answers[answers.length - 1].combo : 0
@@ -79,8 +76,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
         const qCount = source.count === 'all' ? j.tracks.length : (source.count ?? 10)
         const qs = makeQuestions(j.tracks, 'title', Math.random, rules.sameArtist, qCount)
 
-        // fetch lyrics for each
-        type RawLyrics = { q: (typeof qs)[0]; context: string[]; answer: string; wrongs: string[] }
+        type RawLyrics = { q: (typeof qs)[0]; context: ContextLine[]; answer: string; wrongs: string[] }
         const raw: RawLyrics[] = []
         const results = await Promise.all(
           qs.map(async (q) => {
@@ -90,7 +86,12 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
               if (q.answer.album) params.album = q.answer.album
               const r = await fetch(`/api/lyrics?${new URLSearchParams(params)}`)
               const lj = await r.json()
-              if (lj.found && lj.context?.length >= 2) return { q, context: lj.context, answer: lj.answer, wrongs: lj.wrongs ?? [] } as RawLyrics
+              if (lj.found && lj.context?.length >= 2) {
+                const context: ContextLine[] = lj.context.map((c: ContextLine | string) =>
+                  typeof c === 'string' ? { text: c, delay: 2.5 } : c
+                )
+                return { q, context, answer: lj.answer, wrongs: lj.wrongs ?? [] } as RawLyrics
+              }
             } catch {}
             return null
           }),
@@ -99,12 +100,11 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
         if (!alive) return
         if (raw.length < 4) return setError('Tidak cukup lagu yang punya lirik untuk kuis ini.')
 
-        // build questions with options (need all questions first for cross-song wrongs)
         const lqs: LyricsQuestion[] = raw.map((r) => ({
           song: r.q.answer,
           context: r.context,
           answer: r.answer,
-          options: [], // filled below
+          options: [],
         }))
         for (let k = 0; k < lqs.length; k++) {
           lqs[k].options = buildOptions(raw[k].answer, raw[k].wrongs, lqs, k)
@@ -126,7 +126,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
 
   const q = count <= 0 ? questions?.[qi] : undefined
 
-  // play audio + reveal context lines one by one, then switch to choosing
+  // play audio + reveal context lines using per-line delays from synced lyrics
   useEffect(() => {
     if (!q) return
     setRevealed(0)
@@ -145,21 +145,27 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
     nextAudio.current = upcoming?.song.preview ? new Audio(upcoming.song.preview) : null
     if (nextAudio.current) nextAudio.current.preload = 'auto'
 
-    let lineCount = 0
-    lineTimer.current = window.setInterval(() => {
-      lineCount++
-      setRevealed(lineCount)
-      if (lineCount >= q.context.length) {
-        clearInterval(lineTimer.current)
-        a.pause()
-        setStarted(false)
-        setTimeout(() => setPhase('countdown'), 400)
-      }
-    }, LINE_INTERVAL * 1000)
+    // schedule each line reveal at its own delay
+    const timers: number[] = []
+    let cumDelay = 0
+    for (let i = 0; i < q.context.length; i++) {
+      cumDelay += (i === 0 ? 1.0 : q.context[i].delay) * 1000
+      const lineNum = i + 1
+      const isLast = i === q.context.length - 1
+      timers.push(window.setTimeout(() => {
+        setRevealed(lineNum)
+        if (isLast) {
+          a.pause()
+          setStarted(false)
+          setTimeout(() => setPhase('countdown'), 400)
+        }
+      }, cumDelay))
+    }
+    revealTimers.current = timers
 
     return () => {
       a.pause()
-      clearInterval(lineTimer.current)
+      for (const t of timers) clearTimeout(t)
       clearTimeout(chooseTimer.current)
     }
   }, [q, qi, questions])
@@ -288,7 +294,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
       <div className="stage lyrics-stage">
         <div className="lyrics-snippet">
           {q.context.slice(0, Math.max(revealed, phase !== 'revealing' ? q.context.length : 0)).map((line, k) => (
-            <p key={k} className={k === revealed - 1 && phase === 'revealing' ? 'lyrics-new' : ''}>{line}</p>
+            <p key={k} className={k === revealed - 1 && phase === 'revealing' ? 'lyrics-new' : ''}>{line.text}</p>
           ))}
           {(phase === 'countdown' || phase === 'choosing') && <p className="lyrics-blank">???</p>}
           {phase === 'done' && (
