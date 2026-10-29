@@ -1769,7 +1769,7 @@ a.lyrics-note:hover {
   animation: pop 0.35s ease both;
 }
 
-.scoreboard li.me {
+.scoreboard li.mine {
   border-color: var(--accent);
 }
 
@@ -2311,4 +2311,248 @@ a.lyrics-note:hover {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ---------- a song in a room: the players on the left, the song on the right ---------- */
+
+.play-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.play-grid .quiz {
+  max-width: none;
+}
+
+/* on a phone the song comes first and the board follows */
+.play-grid .board {
+  order: 2;
+}
+
+@media (min-width: 820px) {
+  .play-grid {
+    grid-template-columns: 300px 1fr;
+    align-items: start;
+  }
+
+  .play-grid .board {
+    position: sticky;
+    top: 16px;
+    order: 0;
+    min-height: 420px;
+  }
+
+  /* the board already shows who has answered */
+  .play-grid .who-answered {
+    display: none;
+  }
+}
+
+.board {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--surface);
+  padding: 14px;
+}
+
+.board-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.board-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  transition: color 0.2s, border-color 0.2s, background-color 0.2s;
+}
+
+.board-tabs button[aria-selected='true'] {
+  border-color: #ffcf5c;
+  background: rgb(255 207 92 / 0.08);
+  color: #ffcf5c;
+}
+
+.board-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+}
+
+.board-list li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-2);
+  padding: 8px 10px;
+  animation: pop 0.3s ease both;
+}
+
+.board-list li.mine {
+  border-color: #ffcf5c;
+}
+
+.board-list b {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-list .you {
+  border-radius: 6px;
+  background: #ffcf5c;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #1b1600;
+}
+
+.board-list .answered {
+  flex: none;
+  color: var(--good);
+}
+
+.board-list .sb-score {
+  min-width: 40px;
+}
+
+.board-list.history img {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.h-song {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+
+.h-song b,
+.h-song small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.h-song small {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+/* one dot per song, in the room's header: a single row, never more than ten */
+.song-dots {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+  gap: 5px;
+  list-style: none;
+}
+
+.song-dots li {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink-muted);
+}
+
+.song-dots li.now {
+  border-color: #ffcf5c;
+  background: #ffcf5c;
+  color: #1b1600;
+  box-shadow: 0 0 14px rgb(255 207 92 / 0.45);
+}
+
+.song-dots li.right {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.song-dots li.wrong {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+/* the last song's number after a gap, so you can see how long the quiz is */
+.song-dots li.more {
+  width: auto;
+  min-width: 28px;
+  border-style: dashed;
+  padding: 0 6px;
+  border-radius: 999px;
+}
+
+@media (max-width: 520px) {
+  .song-dots {
+    order: 3;
+    flex-basis: 100%;
+    gap: 4px;
+  }
+
+  .song-dots li {
+    width: 24px;
+    height: 24px;
+    font-size: 10.5px;
+  }
+}
+
+/* who took the song */
+.winner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 1px solid rgb(255 207 92 / 0.45);
+  border-radius: 18px;
+  background: rgb(255 207 92 / 0.08);
+  padding: 12px 16px;
+  animation: pop 0.35s ease both;
+}
+
+.winner.none {
+  border-color: var(--line);
+  background: var(--surface);
+  text-align: center;
+}
+
+.winner > span:not(.sb-avatar) {
+  display: grid;
+}
+
+.winner small {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.winner b {
+  font-size: 17px;
+}
+
+.winner .gain {
+  font-size: 16px;
 }

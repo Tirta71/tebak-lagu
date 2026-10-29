@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Peer, { type DataConnection } from 'peerjs'
-import { ArrowLeft, Check, ChevronRight, Copy, Crown, ListMusic, LogOut, Play, Settings2, Users, Volume2, X, Zap } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Copy, Crown, History, ListMusic, LogOut, Play, Settings2, Trophy, Users, Volume2, X, Zap } from 'lucide-react'
 import { Bit, Equalizer } from './Bit'
 import { LEVELS } from './levels'
 import type { Profile } from './local'
@@ -16,6 +16,8 @@ const HOST = 'host'
 const GRACE = 3
 
 type Phase = 'connecting' | 'lobby' | 'loading' | 'question' | 'reveal' | 'end' | 'error'
+/** A song that has been played: its answer and how everyone did. */
+type Round = { i: number; answer: Song; results: RoundResult[] }
 type View = {
   phase: Phase
   players: Player[]
@@ -24,10 +26,11 @@ type View = {
   q: PublicQuestion | null
   answered: string[]
   reveal: { answer: Song; results: RoundResult[] } | null
+  history: Round[]
   error: string | null
 }
 
-const blank: View = { phase: 'connecting', players: [], settings: null, step: 'atur', q: null, answered: [], reveal: null, error: null }
+const blank: View = { phase: 'connecting', players: [], settings: null, step: 'atur', q: null, answered: [], reveal: null, history: [], error: null }
 
 /** Everyone, highest score first. */
 const ranked = (players: Player[]) => [...players].sort((a, b) => b.score - a.score)
@@ -35,8 +38,8 @@ const ranked = (players: Player[]) => [...players].sort((a, b) => b.score - a.sc
 /**
  * A room. The host's browser runs it: it opens the room at once, sets it up (settings, then a quiz)
  * while friends join, loads the songs, sends each one to the guests, collects the answers, scores
- * them (faster is more, the first right answer gets a bonus) and sends the results. Guests show
- * what the host sends and answer.
+ * them (faster is more, the first right answer gets a bonus and ends the song for everyone) and
+ * sends the results. Guests show what the host sends and answer.
  */
 function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: GameSettings) {
   const [view, setView] = useState<View>(blank)
@@ -62,13 +65,19 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
         case 'lobby':
           return { ...v, phase: v.phase === 'connecting' || v.phase === 'end' ? 'lobby' : v.phase, players: m.players, settings: m.settings, step: m.step }
         case 'loading':
-          return { ...v, phase: 'loading' }
+          return { ...v, phase: 'loading', history: [] }
         case 'q':
           return { ...v, phase: 'question', q: m.q, answered: [], reveal: null }
         case 'answered':
           return { ...v, answered: m.ids }
         case 'reveal':
-          return { ...v, phase: 'reveal', reveal: { answer: m.answer, results: m.results }, players: m.players }
+          return {
+            ...v,
+            phase: 'reveal',
+            reveal: { answer: m.answer, results: m.results },
+            players: m.players,
+            history: [...v.history.filter((h) => h.i !== m.i), { i: m.i, answer: m.answer, results: m.results }],
+          }
         case 'end':
           return { ...v, phase: 'end', players: m.players }
         case 'full':
@@ -155,7 +164,9 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
       if (m.i !== current.current || answers.current.has(from)) return
       answers.current.set(from, { id: m.id, seconds: Math.max(0, m.seconds) })
       emit({ t: 'answered', ids: [...answers.current.keys()] })
-      if (answers.current.size >= players.current.size) finish()
+      // the first right answer wins the song; a wrong one only locks out that player
+      const right = m.id !== null && m.id === questions.current[m.i]?.answer.id
+      if (right || answers.current.size >= players.current.size) finish()
     },
     [emit, finish],
   )
@@ -382,7 +393,7 @@ function Scoreboard({ players, results, myId }: { players: Player[]; results?: R
       {ranked(players).map((p, k) => {
         const r = results?.find((x) => x.id === p.id)
         return (
-          <li key={p.id} className={p.id === myId ? 'me' : ''}>
+          <li key={p.id} className={p.id === myId ? 'mine' : ''}>
             <span className="place">{k + 1}</span>
             <span className="sb-avatar">{p.avatar}</span>
             <b>{p.name}</b>
@@ -400,6 +411,125 @@ function Scoreboard({ players, results, myId }: { players: Player[]; results?: R
         )
       })}
     </ol>
+  )
+}
+
+/** Who took the song, and how you did. */
+function Winner({ reveal, players, me }: { reveal: { results: RoundResult[] }; players: Player[]; me: string }) {
+  const first = reveal.results.find((r) => r.first)
+  const p = players.find((x) => x.id === first?.id)
+  const mine = reveal.results.find((r) => r.id === me)
+  return (
+    <div className={`winner${first ? '' : ' none'}`}>
+      {p && first ? (
+        <>
+          <span className="sb-avatar big">{p.avatar}</span>
+          <span>
+            <small>{first.id === me ? 'Kamu paling cepat!' : 'Paling cepat'}</small>
+            <b>{p.name}</b>
+          </span>
+          <em className="gain">
+            +{first.points} <Zap size={14} />
+          </em>
+        </>
+      ) : (
+        <span>
+          <b>Tidak ada yang benar</b>
+          <small>{mine?.picked === null ? 'Waktunya habis.' : 'Semua pilihan meleset.'}</small>
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** How many song dots fit in one row; a longer quiz shows the ones around the current song. */
+const DOTS = 10
+
+/** One dot per song: how you did on the ones played, the current one lit (while it plays). */
+function SongDots({ total, at, live, history, me }: { total: number; at: number; live: boolean; history: Round[]; me: string }) {
+  const from = Math.max(0, Math.min(at - Math.floor(DOTS / 2) + 1, total - DOTS))
+  const to = Math.min(total, from + DOTS)
+  return (
+    <ol className="song-dots" aria-label={`Lagu ${at + 1} dari ${total}`}>
+      {from > 0 && <li className="more">…</li>}
+      {Array.from({ length: to - from }, (_, k) => {
+        const i = from + k
+        const mine = history.find((h) => h.i === i)?.results.find((r) => r.id === me)
+        const state = live && i === at ? 'now' : mine ? (mine.points ? 'right' : 'wrong') : ''
+        return (
+          <li key={i} className={state}>
+            {i + 1}
+          </li>
+        )
+      })}
+      {to < total && <li className="more">{total}</li>}
+    </ol>
+  )
+}
+
+/** The column beside a song: everyone's score (and who has answered), or the songs so far. */
+function Board({ players, answered, results, history, me }: { players: Player[]; answered: string[]; results?: RoundResult[]; history: Round[]; me: string }) {
+  const [tab, setTab] = useState<'rank' | 'history'>('rank')
+  const names = new Map(players.map((p) => [p.id, p]))
+  return (
+    <aside className="board">
+      <div className="board-tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'rank'} onClick={() => setTab('rank')}>
+          <Trophy size={15} /> Peringkat
+        </button>
+        <button role="tab" aria-selected={tab === 'history'} onClick={() => setTab('history')}>
+          <History size={15} /> Riwayat
+        </button>
+      </div>
+
+      {tab === 'rank' ? (
+        <ol className="board-list">
+          {ranked(players).map((p, k) => {
+            const r = results?.find((x) => x.id === p.id)
+            return (
+              <li key={p.id} className={p.id === me ? 'mine' : ''}>
+                <span className="place">{k + 1}</span>
+                <span className="sb-avatar">{p.avatar}</span>
+                <b>{p.name}</b>
+                {p.id === me && <small className="you">kamu</small>}
+                {r ? (
+                  r.points ? (
+                    <em className="gain">
+                      +{r.points}
+                      {r.first && <Zap size={12} />}
+                    </em>
+                  ) : null
+                ) : (
+                  answered.includes(p.id) && <Check size={15} className="answered" aria-label="sudah menjawab" />
+                )}
+                <span className="sb-score">{p.score}</span>
+              </li>
+            )
+          })}
+        </ol>
+      ) : history.length ? (
+        <ol className="board-list history">
+          {[...history].reverse().map((h) => {
+            const mine = h.results.find((r) => r.id === me)
+            const winner = names.get(h.results.find((r) => r.first)?.id ?? '')
+            return (
+              <li key={h.i}>
+                {h.answer.cover ? <img src={h.answer.cover} alt="" /> : <span className="sb-avatar" />}
+                <span className="h-song">
+                  <b>{h.answer.title}</b>
+                  <small>
+                    {winner ? `${winner.avatar} ${winner.name} tercepat` : 'Tidak ada yang benar'}
+                  </small>
+                </span>
+                {mine?.points ? <em className="gain">+{mine.points}</em> : <em className="miss">{mine?.picked === null ? 'habis' : 'salah'}</em>}
+              </li>
+            )
+          })}
+        </ol>
+      ) : (
+        <p className="note center-text">Lagu yang sudah dimainkan muncul di sini.</p>
+      )}
+    </aside>
   )
 }
 
@@ -467,14 +597,14 @@ export function Party({ role, code, initial, profile, onLeave }: { role: 'host' 
   const me = myId.current
   const host = role === 'host'
 
-  // a sound when the result comes in, and the host moves on by itself after a while
+  // a sound when the result comes in, and the host moves on to the next song shortly after
   useEffect(() => {
     if (view.phase !== 'reveal' || !view.reveal) return
     const mine = view.reveal.results.find((r) => r.id === me)
     if (mine?.points) sfx.right()
     else sfx.wrong()
     if (!host) return
-    const id = setTimeout(nextSong, 8000)
+    const id = setTimeout(nextSong, 3000)
     return () => clearTimeout(id)
   }, [view.phase, view.reveal, me, host, nextSong])
 
@@ -530,6 +660,7 @@ export function Party({ role, code, initial, profile, onLeave }: { role: 'host' 
             ))}
           </ol>
         )}
+        {(view.phase === 'question' || view.phase === 'reveal') && view.q && <SongDots total={view.q.total} at={view.q.i} live={view.phase === 'question'} history={view.history} me={me} />}
         <span className="room-code">
           Room <b>{roomCode}</b>
         </span>
@@ -586,25 +717,31 @@ export function Party({ role, code, initial, profile, onLeave }: { role: 'host' 
         </>
       )}
 
-      {view.phase === 'question' && view.q && s && <RoomQuestion key={view.q.i} q={view.q} settings={s} answered={view.answered} players={view.players} onAnswer={(id, seconds) => answer(view.q!.i, id, seconds)} />}
+      {(view.phase === 'question' || view.phase === 'reveal') && (
+        <div className="play-grid">
+          <Board players={view.players} answered={view.answered} results={view.phase === 'reveal' ? view.reveal?.results : undefined} history={view.history} me={me} />
 
-      {view.phase === 'reveal' && view.reveal && (
-        <div className="reveal-room">
-          <div className="now-playing">
-            {view.reveal.answer.cover && <img src={view.reveal.answer.cover} alt="" />}
-            <span>
-              <small className="muted">Jawabannya</small>
-              <b>{view.reveal.answer.title}</b>
-              <small>{view.reveal.answer.artist}</small>
-            </span>
-          </div>
-          <Scoreboard players={view.players} results={view.reveal.results} myId={me} />
-          {host ? (
-            <button className="primary" onClick={nextSong}>
-              Lagu berikutnya
-            </button>
-          ) : (
-            <p className="note center-text">Lagu berikutnya sebentar lagi…</p>
+          {view.phase === 'question' && view.q && s && <RoomQuestion key={view.q.i} q={view.q} settings={s} answered={view.answered} players={view.players} onAnswer={(id, seconds) => answer(view.q!.i, id, seconds)} />}
+
+          {view.phase === 'reveal' && view.reveal && (
+            <div className="reveal-room">
+              <div className="now-playing">
+                {view.reveal.answer.cover && <img src={view.reveal.answer.cover} alt="" />}
+                <span>
+                  <small className="muted">Jawabannya</small>
+                  <b>{view.reveal.answer.title}</b>
+                  <small>{view.reveal.answer.artist}</small>
+                </span>
+              </div>
+              <Winner reveal={view.reveal} players={view.players} me={me} />
+              {host ? (
+                <button className="primary" onClick={nextSong}>
+                  Lagu berikutnya
+                </button>
+              ) : (
+                <p className="note center-text">Lagu berikutnya sebentar lagi…</p>
+              )}
+            </div>
           )}
         </div>
       )}
