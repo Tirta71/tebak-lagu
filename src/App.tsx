@@ -89,6 +89,51 @@ function useClip(src: string | undefined) {
   return { play, stop, playing, time }
 }
 
+type Lyrics = { configured?: boolean; found?: boolean; text?: string; copyright?: string | null; pixel?: string | null }
+
+/**
+ * The song's lyrics on the answer card, fetched from Musixmatch's licensed API at that moment (the
+ * game keeps no lyrics itself). Shown with Musixmatch's copyright line and tracking pixel, as its
+ * terms ask. Without an API key, or for songs it doesn't have, it's the link to Musixmatch instead.
+ */
+function LyricsPanel({ title, artist, link }: { title: string; artist: string; link: string }) {
+  const [lyrics, setLyrics] = useState<Lyrics | null>(null)
+  useEffect(() => {
+    let alive = true
+    setLyrics(null)
+    fetch(`/api/lyrics?${new URLSearchParams({ title, artist })}`)
+      .then((r) => r.json())
+      .catch(() => ({ found: false }))
+      .then((j: Lyrics) => alive && setLyrics(j))
+    return () => {
+      alive = false
+    }
+  }, [title, artist])
+
+  if (!lyrics) return <p className="lyrics-note">Mencari lirik…</p>
+  if (!lyrics.found)
+    return (
+      <a className="lyrics-note" href={link} target="_blank" rel="noreferrer">
+        <FileText size={14} /> {lyrics.configured === false ? 'Lihat liriknya di Musixmatch' : 'Lirik belum tersedia di sini · cari di Musixmatch'}
+      </a>
+    )
+  return (
+    <details className="lyrics" open>
+      <summary>
+        <FileText size={14} /> Lirik
+      </summary>
+      <p className="lyrics-text">{lyrics.text}</p>
+      <small>
+        {lyrics.copyright ?? ''} Lirik dari{' '}
+        <a href={link} target="_blank" rel="noreferrer">
+          Musixmatch
+        </a>
+      </small>
+      {lyrics.pixel && <img className="lyrics-pixel" src={lyrics.pixel} alt="" width={1} height={1} />}
+    </details>
+  )
+}
+
 /** The guess box: type, pick a song from Deezer's results (Enter takes the first). */
 function GuessBox({ onGuess, disabled }: { onGuess: (s: Song) => void; disabled: boolean }) {
   const [q, setQ] = useState('')
@@ -361,12 +406,9 @@ export function App() {
                     <a className="ghost small" href={spotifyLink} target="_blank" rel="noreferrer">
                       <ExternalLink size={14} /> Spotify
                     </a>
-                    {/* lyrics are licensed, so the game links to them on Musixmatch instead of showing them */}
-                    <a className="ghost small" href={lyricsLink} target="_blank" rel="noreferrer">
-                      <FileText size={14} /> Lirik
-                    </a>
                   </div>
                 </div>
+                <LyricsPanel title={round.track.title} artist={round.track.artist} link={lyricsLink} />
                 <button className="primary" onClick={newRound} disabled={loading}>
                   {loading ? 'Menyiapkan…' : 'Lagu berikutnya'}
                 </button>
