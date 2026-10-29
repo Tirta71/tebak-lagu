@@ -49,7 +49,7 @@ export function App() {
           </div>
         </button>
         <span className="me">
-          <span aria-hidden>{profile.avatar}</span> {profile.name || 'Tamu'}
+          <span aria-hidden>{profile.avatar}</span> <span>{profile.name || 'Tamu'}</span>
         </span>
       </header>
 

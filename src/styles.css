@@ -127,6 +127,7 @@ h2 {
 .me {
   display: inline-flex;
   max-width: 50%;
+  min-width: 0;
   align-items: center;
   gap: 8px;
   overflow: hidden;
@@ -135,8 +136,12 @@ h2 {
   padding: 7px 14px;
   font-size: 13.5px;
   font-weight: 600;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.me span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---------- buttons ---------- */
@@ -1513,20 +1518,57 @@ a.lyrics-note:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
+}
+
+@media (max-width: 600px) {
+  .room-head {
+    justify-content: space-between;
+  }
+  .room-head .steps {
+    order: 10;
+    flex-basis: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .room-head .steps::-webkit-scrollbar { display: none; }
 }
 
 .room-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface);
   padding: 6px 12px;
   font-size: 13px;
   color: var(--ink-muted);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.room-code:hover {
+  border-color: var(--accent);
+}
+
+.room-code.copied {
+  border-color: var(--good);
+  background: rgb(34 197 94 / 0.1);
 }
 
 .room-code b {
   letter-spacing: 0.15em;
   color: var(--ink);
+}
+
+.room-code svg {
+  opacity: 0.5;
+  flex-shrink: 0;
 }
 
 .room-quiz {
@@ -2040,6 +2082,12 @@ a.lyrics-note:hover {
   border-radius: 22px;
   background: var(--surface);
   padding: 16px;
+}
+
+@media (max-width: 600px) {
+  .seats {
+    padding: 12px;
+  }
 }
 
 .seats h3 {
