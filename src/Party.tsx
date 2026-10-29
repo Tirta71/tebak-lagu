@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Peer, { type DataConnection } from 'peerjs'
 import { ArrowLeft, Check, ChevronRight, Copy, Crown, FileText, Hand, History, ListMusic, LogOut, Pencil, Play, RotateCcw, Settings2, Trophy, Users, Volume2, X, Zap } from 'lucide-react'
 import { Bit, Equalizer } from './Bit'
@@ -9,6 +9,7 @@ import { ANSWER_DELAY, FIRST_BONUS, MAX_PLAYERS, WRONG_PENALTY, newCode, peerId,
 import { enoughArtists, makeQuestions, MODE_LABEL, pointsFor } from './Quiz'
 import { SettingsPanel, type GameSettings } from './Settings'
 import { sfx } from './sfx'
+import { cueAt, loadSyncedQuestions, type ReadyQuestion } from './lyricsSync'
 import type { Mode, Question, QuizSource, Song } from './types'
 
 const PEER_CONFIG = { host: 'peer.allegiaant.net', port: 443, path: '/peer', secure: true }
@@ -200,7 +201,7 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
 
   // ---------- host: lyrics mode ----------
 
-  type LyricsQ = { song: Song; context: string[]; answerLine: string; wrongs: string[] }
+  type LyricsQ = ReadyQuestion
   const lyricsQuestions = useRef<LyricsQ[]>([])
   const lyricsBuzzer = useRef<string | null>(null)
   const lyricsWrongIds = useRef(new Set<number>())
@@ -216,23 +217,18 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     lyricsWrongIds.current = new Set()
     lyricsPenalties.current = new Map()
     clearInterval(lyricsLineTimer.current)
-    const seen = new Set([q.answerLine.toLowerCase()])
+    const seen = new Set([q.answer.toLowerCase(), ...q.context.map((c) => c.toLowerCase())])
     const wrongs: string[] = []
-    for (const w of q.wrongs) { const k = w.toLowerCase(); if (!seen.has(k)) { wrongs.push(w); seen.add(k) }; if (wrongs.length >= 3) break }
-    for (let j = 0; j < lyricsQuestions.current.length && wrongs.length < 3; j++) {
-      if (j === i) continue
-      const oq = lyricsQuestions.current[j]
-      for (const line of [...oq.context, oq.answerLine]) {
-        const k = line.toLowerCase(); if (!seen.has(k) && line.length > 5) { wrongs.push(line); seen.add(k) }; if (wrongs.length >= 3) break
-      }
-    }
-    const opts = [{ text: q.answerLine, correct: true }, ...wrongs.slice(0, 3).map((t) => ({ text: t, correct: false }))]
+    const take = (line: string) => { const k = line.toLowerCase(); if (wrongs.length < 3 && !seen.has(k) && line.length > 5) { wrongs.push(line); seen.add(k) } }
+    q.wrongs.forEach(take)
+    lyricsQuestions.current.forEach((oq, j) => { if (j !== i) [...oq.context, oq.answer].forEach(take) })
+    const opts = [{ text: q.answer, correct: true }, ...wrongs.map((t) => ({ text: t, correct: false }))]
     for (let k = opts.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [opts[k], opts[j]] = [opts[j], opts[k]] }
-    const lq: LyricsPublicQuestion = { i, total: lyricsQuestions.current.length, preview: q.song.preview, context: q.context, options: opts }
+    const lq: LyricsPublicQuestion = { i, total: lyricsQuestions.current.length, preview: q.song.preview, context: q.context, options: opts, from: q.from, cues: q.cues, stopAt: q.stopAt }
     lastEmittedLyricsQ.current = lq
     emit({ t: 'lq', q: lq })
     clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => { finishLyrics(i) }, (q.context.length * 2.0 + 20) * 1000)
+    timer.current = window.setTimeout(() => { finishLyrics(i) }, (q.stopAt - q.from + 25) * 1000)
   }, [emit])
 
   const finishLyrics = useCallback((qi: number) => {
@@ -312,7 +308,8 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     if (!q) return setStep('kuis')
     emit({ t: 'loading' })
     const s = settings.current
-    const j = await fetch(`/api/quiz?${q.query}&want=${s.count}`)
+    const want = s.lyrics && s.count !== 'all' ? s.count * 4 : s.count
+    const j = await fetch(`/api/quiz?${q.query}&want=${want}`)
       .then((r) => r.json())
       .catch(() => ({ error: 'Kuis tidak bisa dimuat.' }))
     if (j.error || !j.tracks) {
@@ -324,29 +321,14 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     for (const p of players.current.values()) p.score = 0
 
     if (s.lyrics) {
-      // lyrics mode: fetch lyrics for each song
-      const qs = makeQuestions(j.tracks, 'title', Math.random, LEVELS[s.level].sameArtist, count)
+      // only songs whose clip lines up with their lyrics; guests play the clip from Deezer themselves
       const withLyrics: LyricsQ[] = []
-      const results = await Promise.all(
-        qs.map(async (qq) => {
-          try {
-            const lparams: Record<string, string> = { title: qq.answer.title, artist: qq.answer.artist }
-            if (qq.answer.duration) lparams.duration = String(qq.answer.duration)
-            if (qq.answer.album) lparams.album = qq.answer.album
-            const r = await fetch(`/api/lyrics?${new URLSearchParams(lparams)}`)
-            const lj = await r.json()
-            if (lj.found && lj.synced && lj.lines?.length >= 8) {
-              const lines = lj.lines as Array<{time: number; text: string}>
-              const ctx = lines.slice(lj.contextIdx, lj.contextIdx + lj.contextLen).map((l: {text: string}) => l.text)
-              return { song: qq.answer, context: ctx, answerLine: lj.answer as string, wrongs: (lj.wrongs ?? []) as string[] } satisfies LyricsQ
-            }
-          } catch {}
-          return null
-        }),
-      )
-      for (const r of results) if (r) withLyrics.push(r)
+      await loadSyncedQuestions(j.tracks, count, (q) => {
+        URL.revokeObjectURL(q.audioUrl)
+        withLyrics.push(q)
+      })
       if (withLyrics.length < 4) {
-        setView((v) => ({ ...v, phase: 'lobby', error: 'Tidak cukup lagu yang punya lirik.' }))
+        setView((v) => ({ ...v, phase: 'lobby', error: 'Tidak cukup lagu yang liriknya pas dengan lagunya.' }))
         return setStep('kuis')
       }
       lyricsQuestions.current = withLyrics
@@ -672,8 +654,6 @@ function RoomQuestion({ q, settings, answered, players, onAnswer }: { q: PublicQ
   )
 }
 
-const LINE_INTERVAL = 2.0
-
 /** Lyrics round in a room: context lines appear, then players buzz to pick the next line. */
 function RoomLyricsQuestion({ q, myId, buzzer, buzzerName, onBuzz, onAnswer }: {
   q: LyricsPublicQuestion
@@ -684,31 +664,70 @@ function RoomLyricsQuestion({ q, myId, buzzer, buzzerName, onBuzz, onAnswer }: {
   onAnswer: (idx: number) => void
 }) {
   const [revealed, setRevealed] = useState(0)
+  const [progress, setProgress] = useState(0)
   const [phase, setPhase] = useState<'revealing' | 'choosing'>('revealing')
   const [started, setStarted] = useState(false)
   const [myWrong, setMyWrong] = useState<Set<number>>(new Set())
   const [myPenalty, setMyPenalty] = useState(0)
   const audio = useRef<HTMLAudioElement | null>(null)
 
-  useEffect(() => {
+  // reset before paint, or the new question's lines flash with the last one's state
+  useLayoutEffect(() => {
     setRevealed(0)
+    setProgress(0)
     setPhase('revealing')
     setMyWrong(new Set())
     setMyPenalty(0)
+  }, [q])
+
+  // play from just before the first shown line; show each line as it's sung; stop before the answer
+  useEffect(() => {
     const a = new Audio(q.preview)
+    a.preload = 'auto'
     audio.current = a
-    a.addEventListener('playing', () => setStarted(true), { once: true })
-    a.play().catch(() => {})
-    let lineCount = 0
-    const iv = window.setInterval(() => {
-      lineCount++
-      setRevealed(lineCount)
-      if (lineCount >= q.context.length) {
-        clearInterval(iv)
-        setTimeout(() => setPhase('choosing'), 800)
-      }
-    }, LINE_INTERVAL * 1000)
-    return () => { clearInterval(iv); a.pause() }
+    let raf = 0
+    let choose = 0
+    let over = false
+    const stop = () => {
+      if (over) return
+      over = true
+      cancelAnimationFrame(raf)
+      a.pause()
+      setStarted(false)
+      setRevealed(q.context.length)
+      setProgress(1)
+      choose = window.setTimeout(() => setPhase('choosing'), 600)
+    }
+    const tick = () => {
+      const t = a.currentTime
+      if (t >= q.stopAt) return stop()
+      setRevealed(cueAt(q.cues, t) + 1)
+      setProgress(Math.max(0, Math.min(1, (t - q.from) / (q.stopAt - q.from))))
+      raf = requestAnimationFrame(tick)
+    }
+    const start = () => {
+      a.currentTime = q.from
+      a.play().catch(() => {})
+    }
+    const onPlaying = () => {
+      setStarted(true)
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(tick)
+    }
+    a.addEventListener('playing', onPlaying)
+    a.addEventListener('ended', stop)
+    a.addEventListener('error', stop)
+    a.addEventListener('loadedmetadata', start, { once: true })
+    return () => {
+      over = true
+      cancelAnimationFrame(raf)
+      clearTimeout(choose)
+      a.pause()
+      a.removeEventListener('playing', onPlaying)
+      a.removeEventListener('ended', stop)
+      a.removeEventListener('error', stop)
+      a.removeEventListener('loadedmetadata', start)
+    }
   }, [q])
 
   const iHaveBuzz = buzzer === myId
@@ -727,7 +746,7 @@ function RoomLyricsQuestion({ q, myId, buzzer, buzzerName, onBuzz, onAnswer }: {
         <span>Tebak Lirik</span>
       </div>
       <div className="timebar" aria-hidden>
-        <span style={{ transform: `scaleX(${Math.min(1, revealed / q.context.length)})`, background: 'linear-gradient(90deg, #3fd6c6, #8b8cff)' }} />
+        <span style={{ transform: `scaleX(${progress})`, background: 'linear-gradient(90deg, #3fd6c6, #8b8cff)' }} />
       </div>
       <div className="stage lyrics-stage">
         <div className="lyrics-snippet">
@@ -739,7 +758,7 @@ function RoomLyricsQuestion({ q, myId, buzzer, buzzerName, onBuzz, onAnswer }: {
         <Equalizer on={started} />
       </div>
 
-      {!started && (
+      {!started && phase === 'revealing' && (
         <button className="ghost small center-self" onClick={() => audio.current?.play()}>
           <Volume2 size={14} /> Putar lagunya
         </button>

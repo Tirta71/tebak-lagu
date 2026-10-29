@@ -1,150 +1,89 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowRight, Check, Flame, Volume2, VolumeX, X } from 'lucide-react'
 import { sfx, isMuted, setMuted } from './sfx'
 import { LEVELS, type LevelRules } from './levels'
 import { Bit, Equalizer } from './Bit'
-import type { Answer, Mode, QuizSource, Song } from './types'
-import { makeQuestions, comboFactor } from './Quiz'
+import type { Answer, Mode, QuizSource } from './types'
+import { comboFactor } from './Quiz'
 import { shuffle } from './random'
+import { cueAt, loadSyncedQuestions, type ReadyQuestion } from './lyricsSync'
 
 const WRONG_PENALTY = 200
+/** Start playing once this many songs are ready; the rest load while you play. */
+const START_AFTER = 3
 
-type SyncedLine = { time: number; text: string }
 type LyricOption = { text: string; correct: boolean }
-type LyricsQuestion = {
-  song: Song
-  lines: SyncedLine[]
-  contextIdx: number
-  contextLen: number
-  answerIdx: number
-  answer: string
-  options: LyricOption[]
-}
+type LyricsQuestion = ReadyQuestion & { options: LyricOption[] }
 
 function lyricsPoints(combo: number, fast: boolean, rules: LevelRules) {
   const base = fast ? 800 : 500
   return Math.round(base * rules.factor * comboFactor(combo))
 }
 
-function buildOptions(answer: string, wrongPool: string[], allQuestions: LyricsQuestion[], qi: number): LyricOption[] {
+/** The answer plus three wrong lines: from the same song first, else from the other songs. */
+function buildOptions(q: LyricsQuestion, all: LyricsQuestion[]): LyricOption[] {
+  const seen = new Set([q.answer.toLowerCase(), ...q.context.map((c) => c.toLowerCase())])
   const wrongs: string[] = []
-  const seen = new Set([answer.toLowerCase()])
-  for (const w of wrongPool) {
-    const k = w.toLowerCase()
-    if (!seen.has(k)) { wrongs.push(w); seen.add(k) }
-    if (wrongs.length >= 3) break
+  const take = (line: string) => {
+    const k = line.toLowerCase()
+    if (wrongs.length < 3 && !seen.has(k) && line.length > 5) { wrongs.push(line); seen.add(k) }
   }
-  if (wrongs.length < 3) {
-    for (let j = 0; j < allQuestions.length && wrongs.length < 3; j++) {
-      if (j === qi) continue
-      for (const l of allQuestions[j].lines) {
-        const k = l.text.toLowerCase()
-        if (!seen.has(k) && l.text.length > 5) { wrongs.push(l.text); seen.add(k) }
-        if (wrongs.length >= 3) break
-      }
-    }
-  }
-  const opts: LyricOption[] = [{ text: answer, correct: true }]
-  for (const w of wrongs.slice(0, 3)) opts.push({ text: w, correct: false })
-  return shuffle(opts, Math.random)
-}
-
-/**
- * Auto-detect which offset aligns the most lyrics into a 30s window.
- * Tries offsets 0..maxTime in 5s steps, picks the one with the most lines.
- */
-function detectOffset(lines: SyncedLine[]): number {
-  if (!lines.length) return 30
-  const maxT = lines[lines.length - 1].time
-  let bestOff = 0, bestCount = 0
-  for (let off = 0; off <= maxT - 20; off += 5) {
-    const count = lines.filter(l => l.time >= off && l.time < off + 30).length
-    if (count > bestCount) { bestCount = count; bestOff = off }
-  }
-  return bestOff
+  q.wrongs.forEach(take)
+  for (const o of all) if (o !== q) [...o.context, o.answer].forEach(take)
+  return shuffle([{ text: q.answer, correct: true }, ...wrongs.map((text) => ({ text, correct: false }))], Math.random)
 }
 
 export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onDone: (answers: Answer[], name: string, mode: Mode) => void; onQuit: () => void }) {
   const rules = LEVELS[source.level ?? 'normal']
-  const [questions, setQuestions] = useState<LyricsQuestion[] | null>(null)
+  const [questions, setQuestions] = useState<LyricsQuestion[]>([])
+  const [loadingDone, setLoadingDone] = useState(false)
+  const [waiting, setWaiting] = useState(false)
   const [name, setName] = useState(source.name)
   const [error, setError] = useState<string | null>(null)
   const [count, setCount] = useState(3)
   const [qi, setQi] = useState(0)
   const [answers, setAnswers] = useState<Answer[]>([])
   const [mute, setMute] = useState(isMuted)
-  const [revealed, setRevealed] = useState<SyncedLine[]>([])
+  const [revealed, setRevealed] = useState(0)
+  const [progress, setProgress] = useState(0)
   const [phase, setPhase] = useState<'revealing' | 'countdown' | 'choosing' | 'done'>('revealing')
   const [countdownNum, setCountdownNum] = useState(3)
   const [wrong, setWrong] = useState<Set<number>>(new Set())
   const [penalty, setPenalty] = useState(0)
   const [pickedIdx, setPickedIdx] = useState<number | null>(null)
   const [started, setStarted] = useState(false)
+  const [blocked, setBlocked] = useState(false)
+  const [wanted, setWanted] = useState(0)
   const audio = useRef<HTMLAudioElement | null>(null)
-  const nextAudio = useRef<HTMLAudioElement | null>(null)
-  const offsetRef = useRef(0)
-  const phaseRef = useRef<string>('revealing')
+  const urls = useRef<string[]>([])
   const chooseTimer = useRef(0)
-  const lastRevealIdx = useRef(-1)
-
-  phaseRef.current = phase
 
   const combo = answers.length && answers[answers.length - 1].points > 0 ? answers[answers.length - 1].combo : 0
 
+  // questions arrive one by one; play starts after the first few while the rest keep loading
   useEffect(() => {
     let alive = true
     ;(async () => {
       try {
-        const res = await fetch(`/api/quiz?${source.query}&want=${source.count ?? 10}`)
+        // only some songs have lyrics that line up with their clip, so ask for extra
+        const res = await fetch(`/api/quiz?${source.query}&want=${source.count === 'all' ? 'all' : (source.count ?? 10) * 4}`)
         const j = await res.json()
         if (!alive) return
         if (j.error || !j.tracks) return setError(j.error ?? 'Kuis tidak bisa dimuat.')
         setName(source.name === 'Playlist kamu' && j.name ? j.name : source.name)
-        const qCount = source.count === 'all' ? j.tracks.length : (source.count ?? 10)
-        const qs = makeQuestions(j.tracks, 'title', Math.random, rules.sameArtist, qCount)
-
-        type RawQ = { q: (typeof qs)[0]; lines: SyncedLine[]; contextIdx: number; contextLen: number; answerIdx: number; answer: string; wrongs: string[] }
-        const raw: RawQ[] = []
-        const results = await Promise.all(
-          qs.map(async (q) => {
-            try {
-              const params: Record<string, string> = { title: q.answer.title, artist: q.answer.artist }
-              if (q.answer.duration) params.duration = String(q.answer.duration)
-              if (q.answer.album) params.album = q.answer.album
-              const r = await fetch(`/api/lyrics?${new URLSearchParams(params)}`)
-              const lj = await r.json()
-              if (lj.found && lj.synced && lj.lines?.length >= 8) {
-                return {
-                  q,
-                  lines: lj.lines as SyncedLine[],
-                  contextIdx: lj.contextIdx as number,
-                  contextLen: lj.contextLen as number,
-                  answerIdx: lj.answerIdx as number,
-                  answer: lj.answer as string,
-                  wrongs: (lj.wrongs ?? []) as string[],
-                } as RawQ
-              }
-            } catch {}
-            return null
-          }),
+        setWanted(source.count === 'all' ? j.tracks.length : (source.count ?? 10))
+        const found = await loadSyncedQuestions(
+          j.tracks,
+          source.count === 'all' ? j.tracks.length : (source.count ?? 10),
+          (rq) => {
+            urls.current.push(rq.audioUrl)
+            setQuestions((prev) => [...prev, { ...rq, options: buildOptions({ ...rq, options: [] }, prev) }])
+          },
+          () => !alive,
         )
-        for (const r of results) if (r) raw.push(r)
         if (!alive) return
-        if (raw.length < 4) return setError('Tidak cukup lagu yang punya lirik untuk kuis ini.')
-
-        const lqs: LyricsQuestion[] = raw.map((r) => ({
-          song: r.q.answer,
-          lines: r.lines,
-          contextIdx: r.contextIdx,
-          contextLen: r.contextLen,
-          answerIdx: r.answerIdx,
-          answer: r.answer,
-          options: [],
-        }))
-        for (let k = 0; k < lqs.length; k++) {
-          lqs[k].options = buildOptions(raw[k].answer, raw[k].wrongs, lqs, k)
-        }
-        setQuestions(lqs)
+        setLoadingDone(true)
+        if (!found) setError('Tidak ada lagu yang liriknya pas dengan lagunya di kuis ini. Coba kuis lain.')
       } catch {
         if (alive) setError('Tidak bisa tersambung. Coba lagi.')
       }
@@ -152,91 +91,99 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
     return () => { alive = false }
   }, [source])
 
+  useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), [])
+
+  const canStart = questions.length >= START_AFTER || (loadingDone && questions.length > 0)
+
   useEffect(() => {
-    if (!questions || count <= 0) return
+    if (!canStart || count <= 0) return
     sfx.count(count === 1)
     const id = setTimeout(() => setCount((c) => c - 1), 750)
     return () => clearTimeout(id)
-  }, [questions, count])
+  }, [canStart, count])
 
-  const q = count <= 0 ? questions?.[qi] : undefined
-
-  // real-time lyrics sync using audio.ontimeupdate
+  // "Lanjut" pressed before the next song finished loading: go on once it's there
   useEffect(() => {
+    if (!waiting) return
+    if (qi + 1 < questions.length) {
+      setWaiting(false)
+      setQi(qi + 1)
+    } else if (loadingDone) {
+      setWaiting(false)
+      onDone(answers, name, 'title')
+    }
+  }, [waiting, questions.length, loadingDone, qi, answers, name, onDone])
+
+  const q = count <= 0 ? questions[qi] : undefined
+  const total = loadingDone ? questions.length : Math.max(wanted, questions.length)
+
+  // reset before paint, or the new question's lines (and answer) flash with the last one's state
+  useLayoutEffect(() => {
     if (!q) return
-    setRevealed([])
+    setRevealed(0)
+    setProgress(0)
     setPhase('revealing')
     setWrong(new Set())
     setPenalty(0)
     setPickedIdx(null)
     setStarted(false)
-    lastRevealIdx.current = -1
-    phaseRef.current = 'revealing'
+    setBlocked(false)
+  }, [q])
 
-    // compute offset: the context lines start at q.lines[q.contextIdx]
-    // the audio preview plays ~30s from some point in the song
-    // offset = timestamp of first context line (so audio second 0 = that timestamp)
-    const ctxStart = q.lines[q.contextIdx].time
-    offsetRef.current = ctxStart
-
-    const a = (nextAudio.current?.src === q.song.preview ? nextAudio.current : null) ?? new Audio(q.song.preview)
+  // play from just before the first shown line; show each line as it's sung; stop before the answer
+  useEffect(() => {
+    if (!q) return
+    // the clip was already downloaded (and checked) while loading, so it starts and seeks at once
+    const a = new Audio(q.audioUrl)
+    a.preload = 'auto'
     audio.current = a
-    a.addEventListener('playing', () => setStarted(true), { once: true })
-
-    const contextEnd = q.contextIdx + q.contextLen
-    const stopAtLine = contextEnd // stop before answer line
-
-    const onTimeUpdate = () => {
-      if (phaseRef.current !== 'revealing') return
-      const t = a.currentTime + offsetRef.current
-      // reveal all lines from contextIdx whose timestamp <= current time
-      let newLastIdx = lastRevealIdx.current
-      for (let i = q.contextIdx; i < stopAtLine; i++) {
-        if (q.lines[i].time <= t && i > lastRevealIdx.current) {
-          newLastIdx = i
-        }
-      }
-      if (newLastIdx > lastRevealIdx.current) {
-        lastRevealIdx.current = newLastIdx
-        const revealedLines = q.lines.slice(q.contextIdx, newLastIdx + 1)
-        setRevealed(revealedLines)
-
-        // if all context lines revealed, transition to countdown
-        if (newLastIdx >= stopAtLine - 1) {
-          a.pause()
-          setStarted(false)
-          setTimeout(() => setPhase('countdown'), 400)
-        }
-      }
+    let raf = 0
+    let over = false
+    const stop = () => {
+      if (over) return
+      over = true
+      cancelAnimationFrame(raf)
+      a.pause()
+      setStarted(false)
+      setRevealed(q.context.length)
+      setProgress(1)
+      setPhase('countdown')
     }
-
-    a.addEventListener('timeupdate', onTimeUpdate)
-    a.play().catch(() => {})
-
-    // fallback: if after 25s still revealing, force transition
-    const fallback = window.setTimeout(() => {
-      if (phaseRef.current === 'revealing') {
-        const revealedLines = q.lines.slice(q.contextIdx, stopAtLine)
-        setRevealed(revealedLines)
-        a.pause()
-        setStarted(false)
-        setPhase('countdown')
-      }
-    }, 25000)
-
-    const upcoming = questions?.[qi + 1]
-    nextAudio.current = upcoming?.song.preview ? new Audio(upcoming.song.preview) : null
-    if (nextAudio.current) nextAudio.current.preload = 'auto'
+    const tick = () => {
+      const t = a.currentTime
+      if (t >= q.stopAt) return stop()
+      setRevealed(cueAt(q.cues, t) + 1)
+      setProgress(Math.max(0, Math.min(1, (t - q.from) / (q.stopAt - q.from))))
+      raf = requestAnimationFrame(tick)
+    }
+    const start = () => {
+      a.currentTime = q.from
+      a.play().then(() => setBlocked(false)).catch(() => setBlocked(true))
+    }
+    const onPlaying = () => {
+      setStarted(true)
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(tick)
+    }
+    a.addEventListener('playing', onPlaying)
+    a.addEventListener('ended', stop)
+    a.addEventListener('error', stop)
+    if (a.readyState >= 1) start()
+    else a.addEventListener('loadedmetadata', start, { once: true })
 
     return () => {
+      over = true
+      cancelAnimationFrame(raf)
       a.pause()
-      a.removeEventListener('timeupdate', onTimeUpdate)
-      clearTimeout(fallback)
+      a.removeEventListener('playing', onPlaying)
+      a.removeEventListener('ended', stop)
+      a.removeEventListener('error', stop)
+      a.removeEventListener('loadedmetadata', start)
       clearTimeout(chooseTimer.current)
     }
-  }, [q, qi, questions])
+  }, [q])
 
-  // countdown 3-2-1
+  // countdown 3-2-1 before the options
   useEffect(() => {
     if (phase !== 'countdown') return
     setCountdownNum(3)
@@ -292,9 +239,9 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
   }, [q, phase, wrong, combo, rules, penalty])
 
   const next = () => {
-    if (!questions) return
-    if (qi + 1 >= questions.length) return onDone(answers, name, 'title')
-    setQi(qi + 1)
+    if (qi + 1 < questions.length) return setQi(qi + 1)
+    if (loadingDone) return onDone(answers, name, 'title')
+    setWaiting(true)
   }
 
   useEffect(() => {
@@ -316,17 +263,17 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
         <button className="primary" onClick={onQuit}>Kembali</button>
       </section>
     )
-  if (!questions || count > 0)
+  if (!canStart || count > 0)
     return (
       <section className="countdown">
         <Bit size={140} mood="listen" />
-        {questions ? (
+        {canStart ? (
           <>
             <span key={count} className="count-num">{count}</span>
             <p>Dengarkan lagu, lanjutkan liriknya!</p>
           </>
         ) : (
-          <p className="note">Menyiapkan lirik...</p>
+          <p className="note">Mencocokkan lirik dengan lagunya{wanted ? ` ${questions.length}/${Math.min(START_AFTER, wanted)}` : ''}...</p>
         )}
       </section>
     )
@@ -334,7 +281,7 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
 
   const score = answers.reduce((s, a) => s + a.points, 0)
   const mine = answers[qi]
-  const totalContext = q.contextLen
+  const shown = phase === 'revealing' ? revealed : q.context.length
 
   return (
     <section className="quiz lyrics-quiz">
@@ -347,21 +294,21 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
         <b className="quiz-score" key={score}>{score}</b>
       </header>
 
-      <div className={`progress${questions.length > 20 ? ' many' : ''}`} style={{ gridTemplateColumns: `repeat(${questions.length}, 1fr)` }}>
-        {questions.map((_, k) => {
+      <div className={`progress${total > 20 ? ' many' : ''}`} style={{ gridTemplateColumns: `repeat(${total}, 1fr)` }}>
+        {Array.from({ length: total }, (_, k) => {
           const a = answers[k]
           return <i key={k} className={a ? (a.points > 0 ? 'right' : 'wrong') : k === qi ? 'now' : ''} />
         })}
       </div>
 
       <div className="timebar" aria-hidden>
-        <span style={{ transform: `scaleX(${phase === 'done' ? 1 : Math.min(1, revealed.length / totalContext)})`, background: 'linear-gradient(90deg, #3fd6c6, #8b8cff)' }} />
+        <span style={{ transform: `scaleX(${phase === 'revealing' ? progress : 1})`, background: 'linear-gradient(90deg, #3fd6c6, #8b8cff)' }} />
       </div>
 
       <div className="stage lyrics-stage">
         <div className="lyrics-snippet">
-          {(phase === 'revealing' ? revealed : q.lines.slice(q.contextIdx, q.contextIdx + q.contextLen)).map((line, k) => (
-            <p key={k} className={k === revealed.length - 1 && phase === 'revealing' ? 'lyrics-new' : ''}>{line.text}</p>
+          {q.context.slice(0, shown).map((line, k) => (
+            <p key={k} className={k === shown - 1 && phase === 'revealing' ? 'lyrics-new' : ''}>{line}</p>
           ))}
           {(phase === 'countdown' || phase === 'choosing') && <p className="lyrics-blank">???</p>}
           {phase === 'done' && (
@@ -371,12 +318,18 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
         <Equalizer on={started} />
       </div>
 
+      {blocked && phase === 'revealing' && (
+        <button className="ghost small center-self" onClick={() => audio.current?.play().then(() => setBlocked(false)).catch(() => {})}>
+          <Volume2 size={14} /> Putar lagunya
+        </button>
+      )}
+
       <div className="hud">
         <span className={`combo${combo >= 3 ? ' hot' : ''}`} title="Benar berturut-turut">
           <Flame size={15} /> {combo}
         </span>
         <p className="ask">
-          {phase === 'revealing' && `Dengarkan...`}
+          {phase === 'revealing' && 'Dengarkan...'}
           {phase === 'countdown' && <span key={countdownNum} className="count-num small">{countdownNum}</span>}
           {phase === 'choosing' && 'Lanjutkan liriknya!'}
           {phase === 'done' && (mine?.points > 0 ? 'Benar!' : 'Gagal')}
@@ -427,8 +380,8 @@ export function LyricsQuiz({ source, onDone, onQuit }: { source: QuizSource; onD
       )}
 
       {phase === 'done' && (
-        <button className="primary" onClick={next}>
-          {qi + 1 >= questions.length ? 'Lihat hasil' : 'Lanjut'} <ArrowRight size={16} />
+        <button className="primary" onClick={next} disabled={waiting}>
+          {waiting ? 'Menyiapkan lagu berikutnya...' : qi + 1 >= total ? 'Lihat hasil' : 'Lanjut'} {!waiting && <ArrowRight size={16} />}
         </button>
       )}
     </section>

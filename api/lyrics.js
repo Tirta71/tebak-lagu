@@ -1,12 +1,23 @@
 // Fetches lyrics for "Tebak Lirik" (continue-the-lyrics) quiz mode.
 //   /api/lyrics?title=<title>&artist=<artist>&duration=<sec>&album=<album>
-// Returns ALL synced lyrics lines with timestamps so the client can
-// reveal them in real-time synced to the Deezer audio preview.
+// Returns the song's timed lyrics lines ({time, text}); only timed lyrics, so they can follow the music.
 
 const json = (body, cache = 'no-store', status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': cache } })
 
 const UA = { headers: { 'user-agent': 'TebakLagu/1.0 (https://tebak-lagu.vercel.app)' } }
+
+/** LRCLIB answers 503/429 when busy; wait a moment and ask again. */
+async function lrclib(url, tries = 3) {
+  const res = await fetch(url, UA)
+  if ((res.status === 503 || res.status === 429) && tries > 1) {
+    await new Promise((r) => setTimeout(r, 700 + Math.random() * 800))
+    return lrclib(url, tries - 1)
+  }
+  // still busy: fail (uncached) rather than answer "no lyrics" for an hour
+  if (res.status >= 500 || res.status === 429) throw new Error('lrclib busy')
+  return res
+}
 
 function cleanTitle(t) {
   return t
@@ -49,7 +60,8 @@ function similarity(a, b) {
 
 function durationMatch(lrcDuration, deezerDuration) {
   if (!deezerDuration || !lrcDuration) return true
-  return Math.abs(lrcDuration - deezerDuration) <= 10
+  // a different edit of the song would shift every line, so the lengths must agree closely
+  return Math.abs(lrcDuration - deezerDuration) <= 4
 }
 
 function scoreResult(r, title, artist, album, duration) {
@@ -70,7 +82,7 @@ function scoreResult(r, title, artist, album, duration) {
 async function fromLrclib(title, artist, duration) {
   const params = new URLSearchParams({ track_name: title, artist_name: artist })
   if (duration) params.set('duration', String(duration))
-  const res = await fetch(`https://lrclib.net/api/get?${params}`, UA)
+  const res = await lrclib(`https://lrclib.net/api/get?${params}`)
   if (!res.ok) return null
   const j = await res.json()
   if (j.trackName && similarity(j.trackName, title) < 0.5) return null
@@ -82,13 +94,13 @@ async function fromLrclib(title, artist, duration) {
 
 async function searchLrclib(title, artist, album, duration) {
   const params = new URLSearchParams({ q: `${title} ${artist}` })
-  const res = await fetch(`https://lrclib.net/api/search?${params}`, UA)
+  const res = await lrclib(`https://lrclib.net/api/search?${params}`)
   if (!res.ok) return null
   const arr = await res.json()
   if (!arr.length) return null
   let best = null, bestScore = 50
   for (const r of arr) {
-    if (!r.syncedLyrics && !r.plainLyrics) continue
+    if (!r.syncedLyrics) continue
     const s = scoreResult(r, title, artist, album, duration)
     if (s > bestScore) {
       best = { syncedLyrics: r.syncedLyrics || null, plainLyrics: r.plainLyrics || null }
@@ -96,21 +108,6 @@ async function searchLrclib(title, artist, album, duration) {
     }
   }
   return best
-}
-
-/**
- * Find the densest 30s windows for picking context+answer.
- * Returns sorted list of candidate windows [{start, end, count}].
- */
-function findDenseWindows(lines) {
-  const windows = []
-  const maxT = lines[lines.length - 1].time
-  for (let s = 0; s <= maxT - 20; s += 5) {
-    const e = s + 30
-    const inW = lines.filter(l => l.time >= s && l.time < e)
-    if (inW.length >= 5) windows.push({ start: s, end: e, count: inW.length })
-  }
-  return windows.sort((a, b) => b.count - a.count)
 }
 
 export async function GET(request) {
@@ -125,65 +122,21 @@ export async function GET(request) {
   const artist = rawArtist.split(',')[0].trim()
 
   try {
-    let result = await fromLrclib(title, artist, duration)
-    if (!result) result = await searchLrclib(title, artist, album, duration)
-    if (!result) return json({ found: false }, 's-maxage=3600')
+    // ask both at once (LRCLIB is slow); the exact match wins, and only timed lyrics count
+    let busy = false
+    const failed = () => { busy = true; return null }
+    const [exact, searched] = await Promise.all([
+      fromLrclib(title, artist, duration).catch(failed),
+      searchLrclib(title, artist, album, duration).catch(failed),
+    ])
+    const synced = exact?.syncedLyrics || searched?.syncedLyrics
+    // LRCLIB being busy isn't "no lyrics": don't cache that
+    if (!synced) return json({ found: false }, busy ? 'no-store' : 's-maxage=3600')
 
-    // only use synced lyrics for proper audio sync
-    if (!result.syncedLyrics) return json({ found: false }, 's-maxage=3600')
-
-    const allLines = dedupSynced(parseLrc(result.syncedLyrics))
-    if (allLines.length < 8) return json({ found: false }, 's-maxage=3600')
-
-    // find best windows for question picking
-    const windows = findDenseWindows(allLines)
-    if (!windows.length) return json({ found: false }, 's-maxage=3600')
-
-    // pick context + answer from a good window
-    let picked = null
-    for (const w of windows) {
-      const windowLines = allLines.filter(l => l.time >= w.start && l.time < w.end)
-      const contextLen = Math.min(3 + Math.floor(Math.random() * 3), windowLines.length - 2)
-      if (contextLen < 3) continue
-      const maxStart = windowLines.length - contextLen - 1
-      if (maxStart < 0) continue
-      const si = Math.floor(Math.random() * (maxStart + 1))
-      const ctxLines = windowLines.slice(si, si + contextLen)
-      const ansLine = windowLines[si + contextLen]
-      if (!ansLine) continue
-
-      // wrongs from outside context
-      const usedTexts = new Set([...ctxLines.map(l => l.text), ansLine.text])
-      const cands = allLines.filter(l => !usedTexts.has(l.text) && l.text.length > 5).map(l => l.text)
-      for (let i = cands.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1))
-        ;[cands[i], cands[j]] = [cands[j], cands[i]]
-      }
-      if (cands.length < 3) continue
-
-      picked = {
-        contextLines: ctxLines,
-        answer: ansLine,
-        wrongs: cands.slice(0, 6),
-        windowStart: w.start
-      }
-      break
-    }
-
-    if (!picked) return json({ found: false }, 's-maxage=3600')
-
-    // return ALL synced lines + the question info
-    // client will use timestamps to sync with audio
-    return json({
-      found: true,
-      lines: allLines,
-      contextIdx: allLines.indexOf(picked.contextLines[0]),
-      contextLen: picked.contextLines.length,
-      answerIdx: allLines.indexOf(picked.answer),
-      answer: picked.answer.text,
-      wrongs: picked.wrongs,
-      synced: true
-    }, 's-maxage=3600')
+    const lines = dedupSynced(parseLrc(synced))
+    if (lines.length < 8) return json({ found: false }, 's-maxage=3600')
+    // the client picks which lines to ask, from the part of the song the preview plays
+    return json({ found: true, synced: true, lines }, 's-maxage=86400')
   } catch {
     return json({ found: false }, 'no-store')
   }

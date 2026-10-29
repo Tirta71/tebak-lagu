@@ -34,6 +34,8 @@ export type Step = 'atur' | 'kuis' | 'main'
 export type LyricsPublicQuestion = {
   i: number; total: number; preview: string
   context: string[]; options: { text: string; correct: boolean }[]
+  /** Clip seconds: where to start playing, when each context line is sung, when to stop. */
+  from: number; cues: number[]; stopAt: number
 }
 
 /** Host → guests. */
