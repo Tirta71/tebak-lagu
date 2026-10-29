@@ -39,8 +39,8 @@ const ranked = (players: Player[]) => [...players].sort((a, b) => b.score - a.sc
 /**
  * A room. The host's browser runs it: it opens the room at once, sets it up (settings, then a quiz)
  * while friends join, loads the songs, sends each one to the guests, collects the answers, scores
- * them (faster is more, the first right answer gets a bonus and ends the song for everyone) and
- * sends the results. Guests show what the host sends and answer.
+ * them (only the fastest right answer scores: points for speed plus a bonus) and sends the
+ * results. Guests show what the host sends and answer.
  */
 function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: GameSettings) {
   const [view, setView] = useState<View>(blank)
@@ -142,9 +142,10 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
     const results: RoundResult[] = [...players.current.values()].map((p) => {
       const a = answers.current.get(p.id)
       const ok = a?.id === q.answer.id
-      const points = ok ? pointsFor(Math.max(0, rules.seconds - a!.seconds), 0, rules) + (p.id === firstId ? Math.round(FIRST_BONUS * rules.factor) : 0) : 0
+      // the song goes to whoever was right fastest; the others who were right get nothing
+      const points = p.id === firstId ? pointsFor(Math.max(0, rules.seconds - a!.seconds), 0, rules) + Math.round(FIRST_BONUS * rules.factor) : 0
       p.score += points
-      return { id: p.id, picked: a?.id ?? null, points, first: p.id === firstId, seconds: a ? a.seconds : null }
+      return { id: p.id, picked: a?.id ?? null, points, first: p.id === firstId, right: ok, seconds: a ? a.seconds : null }
     })
     current.current = i + 0.5 // answers for this song are closed
     emit({ t: 'reveal', i, answer: q.answer, results, players: [...players.current.values()] })
@@ -168,9 +169,9 @@ function useRoom(role: 'host' | 'guest', code: string, me: Profile, initial: Gam
       if (m.i !== current.current || answers.current.has(from)) return
       answers.current.set(from, { id: m.id, seconds: Math.max(0, m.seconds) })
       emit({ t: 'answered', ids: [...answers.current.keys()] })
-      // the first right answer wins the song; a wrong one only locks out that player
-      const right = m.id !== null && m.id === questions.current[m.i]?.answer.id
-      if (right || answers.current.size >= players.current.size) finish()
+      // the song ends once everyone has answered (or the time is up); the fastest right one wins it,
+      // by each player's own clock rather than by whose answer reached the host first
+      if (answers.current.size >= players.current.size) finish()
     },
     [emit, finish],
   )
@@ -512,6 +513,7 @@ function Winner({ reveal, players, me }: { reveal: { results: RoundResult[] }; p
           <small>{mine?.picked === null ? 'Waktunya habis.' : 'Semua pilihan meleset.'}</small>
         </span>
       )}
+      {mine?.right && !mine.first && <small className="late-note">Kamu juga benar, tapi kalah cepat {mine.seconds !== null && first?.seconds != null && `(${(mine.seconds - first.seconds).toFixed(1)} dtk)`}</small>}
     </div>
   )
 }
@@ -529,7 +531,7 @@ function SongDots({ total, at, live, history, me }: { total: number; at: number;
       {Array.from({ length: to - from }, (_, k) => {
         const i = from + k
         const mine = history.find((h) => h.i === i)?.results.find((r) => r.id === me)
-        const state = live && i === at ? 'now' : mine ? (mine.points ? 'right' : 'wrong') : ''
+        const state = live && i === at ? 'now' : mine ? (mine.points ? 'right' : mine.right ? 'late' : 'wrong') : ''
         return (
           <li key={i} className={state}>
             {i + 1}
@@ -572,6 +574,8 @@ function Board({ players, answered, results, history, me }: { players: Player[];
                       +{r.points}
                       {r.first && <Zap size={12} />}
                     </em>
+                  ) : r.right ? (
+                    <em className="late">telat</em>
                   ) : null
                 ) : (
                   answered.includes(p.id) && <Check size={15} className="answered" aria-label="sudah menjawab" />
@@ -595,7 +599,7 @@ function Board({ players, answered, results, history, me }: { players: Player[];
                     {winner ? `${winner.avatar} ${winner.name} tercepat` : 'Tidak ada yang benar'}
                   </small>
                 </span>
-                {mine?.points ? <em className="gain">+{mine.points}</em> : <em className="miss">{mine?.picked === null ? 'habis' : 'salah'}</em>}
+                {mine?.points ? <em className="gain">+{mine.points}</em> : mine?.right ? <em className="late">telat</em> : <em className="miss">{mine?.picked === null ? 'habis' : 'salah'}</em>}
               </li>
             )
           })}

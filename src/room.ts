@@ -21,7 +21,8 @@ export type Player = { id: string; name: string; avatar: string; score: number }
 /** What a guest sees of a question: no hint of which choice is right. */
 export type PublicQuestion = { i: number; total: number; kind: 'title' | 'artist'; preview: string; options: { id: number; title: string; artist: string }[] }
 
-export type RoundResult = { id: string; picked: number | null; points: number; first: boolean; seconds: number | null }
+/** How one player did on a song: only the fastest right answer (`first`) scores; `right` is any right answer. */
+export type RoundResult = { id: string; picked: number | null; points: number; first: boolean; right: boolean; seconds: number | null }
 
 /** The room's set-up, as everyone sees it: the quiz (once picked), what to guess, how hard, how many. */
 export type Settings = { quiz: string | null; picture?: string | null; mode: Mode; level: Level; count: Count }
@@ -45,6 +46,6 @@ export type GuestMsg =
   | { t: 'answer'; i: number; id: number | null; seconds: number }
   | { t: 'profile'; name: string; avatar: string }
 
-/** Extra points for the first right answer on each song. */
+/** Extra points for the fastest right answer on each song (on top of its points for speed). */
 export const FIRST_BONUS = 200
 export const MAX_PLAYERS = 8

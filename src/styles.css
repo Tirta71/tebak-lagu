@@ -2536,3 +2536,27 @@ a.lyrics-note:hover {
     opacity: 0.5;
   }
 }
+
+/* right, but someone else was faster */
+.late {
+  font-size: 12.5px;
+  font-style: normal;
+  font-weight: 700;
+  color: #ffcf5c;
+}
+
+.winner .late-note {
+  flex-basis: 100%;
+  font-size: 12.5px;
+  text-align: center;
+  color: #ffcf5c;
+}
+
+.winner {
+  flex-wrap: wrap;
+}
+
+.song-dots li.late {
+  border-color: #ffcf5c;
+  color: #ffcf5c;
+}
